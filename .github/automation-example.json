@@ -1,0 +1,11 @@
+{
+  "jobs": [
+    {
+      "id": "ci-automation-smoke",
+      "name": "CI Automation Smoke",
+      "command": "go run ./cmd/agentforge --version",
+      "interval": "1h",
+      "enabled": true
+    }
+  ]
+}

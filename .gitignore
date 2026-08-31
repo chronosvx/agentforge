@@ -1,0 +1,23 @@
+# Build artifacts
+/bin/
+/dist/
+/agentforge
+
+# Local data / config / secrets
+/.agentforge/
+/.agentforge.json
+/data/
+/local/
+secrets.json
+*.secrets.json
+*.pem
+*.key
+.env
+.env.*
+
+# Logs / test output
+*.log
+*.out
+*.test
+coverage.out
+.DS_Store
