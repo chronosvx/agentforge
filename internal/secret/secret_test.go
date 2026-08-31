@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -193,6 +194,9 @@ func TestKeychainStoreDarwinCommands(t *testing.T) {
 }
 
 func TestKeychainStoreWindowsCommands(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("native Windows Credential Manager API does not use the command runner")
+	}
 	testKeychainCommands(t, "windows")
 }
 
