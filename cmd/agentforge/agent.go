@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -67,6 +68,7 @@ func runAgent(args []string) error {
 	doPR := fs.Bool("pr", false, "提交后创建 PR（需要 gh CLI）")
 	prTitle := fs.String("pr-title", "", "PR 标题（默认使用提交信息）")
 	prBody := fs.String("pr-body", "", "PR 描述")
+	jsonOut := fs.Bool("json", false, "以 JSON 格式输出结果")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -161,24 +163,26 @@ func runAgent(args []string) error {
 		return err
 	}
 
-	fmt.Println("\n===== Agent 主流程结果 =====")
-	fmt.Printf("Phase: %s\n", res.Session.Phase)
-	for _, a := range res.Session.Actions {
-		fmt.Printf("Action: %s [%s] %s\n", a.ID, a.Status, a.Description)
-		if a.Output != "" {
-			fmt.Printf("  Output: %s\n", a.Output)
+	if !*jsonOut {
+		fmt.Println("\n===== Agent 主流程结果 =====")
+		fmt.Printf("Phase: %s\n", res.Session.Phase)
+		for _, a := range res.Session.Actions {
+			fmt.Printf("Action: %s [%s] %s\n", a.ID, a.Status, a.Description)
+			if a.Output != "" {
+				fmt.Printf("  Output: %s\n", a.Output)
+			}
 		}
-	}
-	if res.TestOutput != "" {
-		fmt.Printf("Test output:\n%s\n", res.TestOutput)
-	}
-	if *testCmd != "" {
-		fmt.Printf("Test OK: %v\n", res.TestOK)
-	}
-	if res.Diff != "" {
-		fmt.Printf("Diff:\n%s\n", res.Diff)
-	} else {
-		fmt.Println("Diff: (none)")
+		if res.TestOutput != "" {
+			fmt.Printf("Test output:\n%s\n", res.TestOutput)
+		}
+		if *testCmd != "" {
+			fmt.Printf("Test OK: %v\n", res.TestOK)
+		}
+		if res.Diff != "" {
+			fmt.Printf("Diff:\n%s\n", res.Diff)
+		} else {
+			fmt.Println("Diff: (none)")
+		}
 	}
 
 	if !res.TestOK && (*doCommit || *doPush || *doPR) {
@@ -207,26 +211,66 @@ func runAgent(args []string) error {
 		sha, err := gitflow.Commit(ctx, cfg)
 		if err != nil {
 			if strings.Contains(err.Error(), "nothing to commit") || strings.Contains(err.Error(), "no changes added") {
-				fmt.Println("Commit: (nothing to commit)")
+				if !*jsonOut {
+					fmt.Println("Commit: (nothing to commit)")
+				}
 			} else {
 				return fmt.Errorf("agent: commit: %w", err)
 			}
 		} else {
-			fmt.Printf("Commit: %s on %s\n", sha, actualBranch)
+			if !*jsonOut {
+				fmt.Printf("Commit: %s on %s\n", sha, actualBranch)
+			}
 		}
 		if *doPush {
 			if err := gitflow.Push(ctx, cfg); err != nil {
 				return fmt.Errorf("agent: push: %w", err)
 			}
-			fmt.Printf("Pushed: %s\n", actualBranch)
+			if !*jsonOut {
+				fmt.Printf("Pushed: %s\n", actualBranch)
+			}
 		}
 		if *doPR {
 			url, err := gitflow.CreatePR(ctx, cfg)
 			if err != nil {
 				return fmt.Errorf("agent: create PR: %w", err)
 			}
-			fmt.Printf("PR: %s\n", url)
+			if !*jsonOut {
+				fmt.Printf("PR: %s\n", url)
+			}
 		}
+	}
+
+	if *jsonOut {
+		type jsonAction struct {
+			ID          string `json:"id"`
+			Type        string `json:"type"`
+			Status      string `json:"status"`
+			Description string `json:"description"`
+			Output      string `json:"output,omitempty"`
+		}
+		actions := make([]jsonAction, 0, len(res.Session.Actions))
+		for _, a := range res.Session.Actions {
+			actions = append(actions, jsonAction{
+				ID:          a.ID,
+				Type:        string(a.Type),
+				Status:      string(a.Status),
+				Description: a.Description,
+				Output:      a.Output,
+			})
+		}
+		out := map[string]any{
+			"phase":       res.Session.Phase,
+			"actions":     actions,
+			"test_output": res.TestOutput,
+			"test_ok":     res.TestOK,
+			"diff":        res.Diff,
+		}
+		data, err := json.MarshalIndent(out, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(data))
 	}
 
 	return nil
