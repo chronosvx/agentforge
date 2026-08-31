@@ -75,6 +75,8 @@ func run() error {
 			return runBackup(args[1:])
 		case "restore":
 			return runRestore(args[1:])
+		case "audit":
+			return runAudit(args[1:])
 		}
 	}
 
@@ -224,6 +226,7 @@ Commands:
   doctor       Check the local environment for requirements
   backup       Backup the local data directory to a zip file
   restore      Restore the local data directory from a zip file
+  audit        Show recent local audit log entries
 
 Flags:
   --mock              Run with the built-in mock backend
