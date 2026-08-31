@@ -111,6 +111,22 @@ UI 体验细节：
 | `/delete` | 删除当前本地会话 |
 | `/skill-install <本地目录\|git URL>` | 从本地目录或 git 仓库安装/更新 Skill |
 | `/skill-sync <manifest-url>` | 从 JSON manifest 同步远端 Skill 仓库清单 |
+| `/agent` | 打开/关闭 Agent 执行/审批面板；`/agent new` 新建会话 |
+| `/agent-new` | 新建 Agent 执行会话 |
+| `/checkpoint <名称>` | 保存当前会话 Checkpoint 到时间线 |
+| `/rewind <ID\|名称>` | 回滚到指定 Checkpoint 或时间线快照 |
+| `/timeline` | 查看 Checkpoint 时间线 |
+| `/fork <标签>` | 从当前会话分叉一个新的时间线分支 |
+| `/mcp <url>` | 连接 MCP Server 并列出工具 |
+| `/mcp-call <工具> <json>` | 调用 MCP 工具 |
+| `/mcp-auto <工具>` | 设置 MCP 工具为自动执行 |
+| `/mcp-confirm <工具>` | 设置 MCP 工具为每次确认 |
+| `/mcp-deny <工具>` | 禁止 MCP 工具 |
+| `/mcp-audit` | 查看最近的 MCP 调用审计 |
+| `/remember <键> <值>` | 保存一条项目记忆 |
+| `/forget <键>` | 删除一条项目记忆 |
+| `/memory [查询]` | 列出或搜索项目记忆 |
+| `/exec [命令]` | 打开执行面板，或直接执行命令 |
 | `/help` | 显示可用命令 |
 | `/close` | 关闭当前 Channel |
 
@@ -173,6 +189,27 @@ agentforge exec --local --cmd "go test ./..." --workdir /path/to/project --timeo
 
 # 企业身份执行：--user/--roles 放在 exec 之前，触发 RBAC 与 SIEM
 agentforge --user alice --roles member exec --local --cmd "echo hi"
+```
+
+### Agent 主流程 / 多 Agent
+
+Agent 主流程 Demo：自然语言需求 → 计划 → 执行 → Diff → 测试 → 提交/回滚。
+
+```bash
+# 静态规划器：run/edit/test 指令
+agentforge agent --prompt "run go test ./..." --yes
+
+# 仓库感知：扫描当前仓库后规划
+agentforge agent --prompt "帮我看看这个项目怎么跑" --repo --yes
+
+# 使用 LLM 规划器（需要 API Key）
+agentforge agent --prompt "帮我加一个 --version 参数" --planner llm --provider deepseek --provider-key sk-xxx --repo --yes
+
+# 自动提交 / 推送 / 创建 PR
+agentforge agent --prompt "edit README.md hello" --yes --commit --push --pr --pr-title "docs: update readme"
+
+# 并行执行多个 Agent 任务
+agentforge multiagent --tasks "run echo a,run echo b,run echo c" --yes
 ```
 
 详细参数说明见 [docs/usage.md](docs/usage.md)。
