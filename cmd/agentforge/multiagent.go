@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -22,6 +23,7 @@ func runMultiAgent(args []string) error {
 	autoApprove := fs.Bool("yes", false, "自动批准所有动作")
 	testCmd := fs.String("test", "", "测试命令；默认不测试")
 	timeout := fs.Duration("timeout", 5*time.Minute, "单条命令超时")
+	jsonOut := fs.Bool("json", false, "以 JSON 格式输出结果")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -63,11 +65,33 @@ func runMultiAgent(args []string) error {
 	defer stop()
 
 	results, err := runner.Run(ctx, tasks, nil)
-	for _, r := range results {
-		if r.Err != nil {
-			fmt.Printf("%s: ERROR %v\n", r.TaskID, r.Err)
-		} else {
-			fmt.Printf("%s: %s\n", r.TaskID, r.Output)
+
+	if *jsonOut {
+		type jsonResult struct {
+			TaskID string `json:"task_id"`
+			Output string `json:"output,omitempty"`
+			Error  string `json:"error,omitempty"`
+		}
+		out := make([]jsonResult, 0, len(results))
+		for _, r := range results {
+			item := jsonResult{TaskID: r.TaskID, Output: r.Output}
+			if r.Err != nil {
+				item.Error = r.Err.Error()
+			}
+			out = append(out, item)
+		}
+		data, marshalErr := json.MarshalIndent(map[string]any{"results": out, "failed": err != nil}, "", "  ")
+		if marshalErr != nil {
+			return marshalErr
+		}
+		fmt.Println(string(data))
+	} else {
+		for _, r := range results {
+			if r.Err != nil {
+				fmt.Printf("%s: ERROR %v\n", r.TaskID, r.Err)
+			} else {
+				fmt.Printf("%s: %s\n", r.TaskID, r.Output)
+			}
 		}
 	}
 	if err != nil {
