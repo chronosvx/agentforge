@@ -15,7 +15,7 @@ type nativeCredential struct {
 	Comment            *uint16
 	LastWritten        syscall.Filetime
 	CredentialBlobSize uint32
-	CredentialBlob     uintptr
+	CredentialBlob     *byte
 	Persist            uint32
 	AttributeCount     uint32
 	Attributes         uintptr
@@ -54,7 +54,7 @@ func (k *KeychainStore) windowsSet(service, key, value string) error {
 		UserName:           userPtr,
 		Persist:            2, // CRED_PERSIST_LOCAL_MACHINE
 		CredentialBlobSize: uint32(len(valueUTF16) * 2),
-		CredentialBlob:     uintptr(unsafe.Pointer(&valueUTF16[0])),
+		CredentialBlob:     (*byte)(unsafe.Pointer(&valueUTF16[0])),
 	}
 
 	r1, _, callErr := procCredWriteW.Call(
@@ -75,12 +75,12 @@ func (k *KeychainStore) windowsGet(service, key string) (string, error) {
 		return "", fmt.Errorf("secret: Windows Credential Manager target: %w", err)
 	}
 
-	var credPtr uintptr
+	var cred *nativeCredential
 	r1, _, callErr := procCredReadW.Call(
 		uintptr(unsafe.Pointer(targetPtr)),
 		1, // CRED_TYPE_GENERIC
 		0,
-		uintptr(unsafe.Pointer(&credPtr)),
+		uintptr(unsafe.Pointer(&cred)),
 	)
 	if r1 == 0 {
 		if callErr == errCredNotFound {
@@ -88,10 +88,9 @@ func (k *KeychainStore) windowsGet(service, key string) (string, error) {
 		}
 		return "", fmt.Errorf("secret: Windows Credential Manager get: %w", callErr)
 	}
-	defer procCredFree.Call(credPtr)
+	defer procCredFree.Call(uintptr(unsafe.Pointer(cred)))
 
-	cred := (*nativeCredential)(unsafe.Pointer(credPtr))
-	if cred.CredentialBlobSize == 0 || cred.CredentialBlob == 0 {
+	if cred == nil || cred.CredentialBlobSize == 0 || cred.CredentialBlob == nil {
 		return "", nil
 	}
 	u := unsafe.Slice((*uint16)(unsafe.Pointer(cred.CredentialBlob)), int(cred.CredentialBlobSize)/2)
