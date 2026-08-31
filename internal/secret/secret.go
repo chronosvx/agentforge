@@ -311,11 +311,7 @@ func (k *KeychainStore) Set(service, key, value string) error {
 	case "windows":
 		return k.windowsSet(service, key, value)
 	case "linux":
-		out, err := k.runner("secret-tool", "store", "--label="+service+"/"+key, service, key, value)
-		if err != nil {
-			return fmt.Errorf("secret: Linux secret-tool store: %w: %s", err, strings.TrimSpace(string(out)))
-		}
-		return nil
+		return k.linuxSet(service, key, value)
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupported, k.osName())
 	}
@@ -339,14 +335,7 @@ func (k *KeychainStore) Get(service, key string) (string, error) {
 	case "windows":
 		return k.windowsGet(service, key)
 	case "linux":
-		out, err := k.runner("secret-tool", "lookup", service, key)
-		if err != nil {
-			if isKeychainNotFound(k.osName(), out) {
-				return "", ErrNotFound
-			}
-			return "", fmt.Errorf("secret: Linux secret-tool lookup: %w: %s", err, strings.TrimSpace(string(out)))
-		}
-		return strings.TrimSpace(string(out)), nil
+		return k.linuxGet(service, key)
 	default:
 		return "", fmt.Errorf("%w: %s", ErrUnsupported, k.osName())
 	}
@@ -367,11 +356,7 @@ func (k *KeychainStore) Delete(service, key string) error {
 	case "windows":
 		return k.windowsDelete(service, key)
 	case "linux":
-		out, err := k.runner("secret-tool", "clear", service, key)
-		if err != nil {
-			return fmt.Errorf("secret: Linux secret-tool clear: %w: %s", err, strings.TrimSpace(string(out)))
-		}
-		return nil
+		return k.linuxDelete(service, key)
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupported, k.osName())
 	}
