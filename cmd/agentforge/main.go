@@ -44,6 +44,11 @@ func run() error {
 		return err
 	}
 
+	if len(args) > 0 && (args[0] == "help" || args[0] == "-h" || args[0] == "--help") {
+		printRootUsage()
+		return nil
+	}
+
 	if len(args) > 0 {
 		switch args[0] {
 		case "export":
@@ -64,6 +69,8 @@ func run() error {
 			return runAgent(args[1:])
 		case "multiagent":
 			return runMultiAgent(args[1:])
+		case "doctor":
+			return runDoctor(args[1:])
 		}
 	}
 
@@ -91,6 +98,10 @@ func run() error {
 	}
 	if headless && strings.TrimSpace(prompt) == "" {
 		return errors.New("--prompt is required with --headless")
+	}
+
+	if !hasConfiguredBackend(cfg) {
+		return errors.New("no backend configured\n\nTry one of:\n  agentforge --mock\n  agentforge --provider deepseek --provider-key sk-xxx\n  agentforge --api-url http://127.0.0.1:54695\n\nSee docs/QUICKSTART.md")
 	}
 
 	warnPlaintextSecrets(cfg)
@@ -174,6 +185,57 @@ func newSessionStore(cfg *config.Config) (session.LocalStore, error) {
 		return nil, fmt.Errorf("parse session encryption key: %w", err)
 	}
 	return session.NewEncryptedStore(cfg.DataDir, key)
+}
+
+// hasConfiguredBackend 判断用户是否显式配置了可用的后端。
+func hasConfiguredBackend(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	if cfg.Mock || cfg.Provider != "" || cfg.APIURL != "" {
+		return true
+	}
+	return cfg.Endpoint != "" && cfg.Endpoint != config.DefaultEndpoint
+}
+
+// printRootUsage 打印根命令帮助，列出所有子命令。
+func printRootUsage() {
+	fmt.Print(`agentforge - terminal AI development agent
+
+Usage:
+  agentforge [flags]
+  agentforge <command> [flags]
+
+Commands:
+  agent        Run the Agent main flow (plan -> execute -> diff -> test)
+  multiagent   Run multiple Agent tasks in parallel
+  exec         Execute commands locally, in Docker, or over SSH
+  export       Export sessions to a directory
+  import       Import sessions from a directory
+  sync         Sync sessions between two directories
+  sync-remote  Sync sessions with a remote HTTP/object storage backend
+  share        Share a session as an encrypted link
+  open         Open a shared session link
+  doctor       Check the local environment for requirements
+
+Flags:
+  --mock              Run with the built-in mock backend
+  --provider NAME     Use a direct model provider (deepseek, openai, ...)
+  --provider-key KEY  Provider API key
+  --api-url URL       Connect to a real DSH Web API
+  --data-dir DIR      Local data directory (default ~/.agentforge)
+  --lang zh|en        UI language (default zh)
+  --version           Print version and exit
+  --help              Show this help
+
+Examples:
+  agentforge --mock
+  agentforge --provider deepseek --provider-key sk-xxx --keychain
+  agentforge agent --prompt "add --version to main.go" --planner llm --repo --yes
+  agentforge doctor
+
+See docs/QUICKSTART.md for more.
+`)
 }
 
 // extractGlobalIdentity 在子命令之前提取可选的 --user 与 --roles 全局参数。
