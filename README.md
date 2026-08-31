@@ -221,6 +221,13 @@ agentforge agent --prompt "edit README.md hello" --yes --commit --push --pr --pr
 # 并行执行多个 Agent 任务
 agentforge multiagent --tasks "run echo a,run echo b,run echo c" --yes
 
+# JSON 输出（便于脚本/CI 集成）
+agentforge agent --prompt "run echo hi" --yes --json
+agentforge multiagent --tasks "run echo a,run echo b" --yes --json
+
+# 连接 MCP Server（真实 MCP 验收）
+agentforge mcp --url http://127.0.0.1:8000/mcp
+
 # 真实 LLM 验收（需要 API Key）
 AGENTFORGE_PROVIDER=deepseek \
 AGENTFORGE_PROVIDER_KEY=sk-xxx \
