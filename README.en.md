@@ -24,7 +24,8 @@ A personal DSH TUI client built from scratch with Go and Bubble Tea.
 - Connect to DSH through the `tui.dsh/v1alpha1` Channel protocol instead of reimplementing the Agent Harness.
 - Balance performance and maintainability: a single Go binary, low memory usage, and high rendering performance.
 - Implemented: real DSH Web API / Channel access, streaming chat, multi-session workspace, Context/Cost/Diff/Todo panels, provider direct connections, i18n, security, telemetry, and update checks.
-- Ongoing: plugin ecosystem, session cloud sync, sharing and collaboration, richer vendor/cost management, and release engineering.
+- Current focus: Agent main workflow, Repo Mode, natural-language execution, Patch-to-PR, Checkpoint timeline, MCP permission center, offline queue, and project memory.
+- Paused priority: enterprise suite, plugin marketplace governance, team collaboration, and MCP Server. Existing code is kept but not extended.
 
 ## Project Structure
 

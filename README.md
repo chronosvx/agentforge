@@ -27,7 +27,8 @@
 - 通过 `tui.dsh/v1alpha1` Channel 协议连接 DSH，而不是重新实现 Agent Harness。
 - 兼顾性能与长期维护：Go 单二进制、低内存、高渲染性能。
 - 已实现：真实 DSH Web API / Channel 接入、流式聊天、多会话工作区、Context/Cost/Diff/Todo 面板、Provider 直连、i18n、安全、企业 RBAC/SIEM、自动化调度、遥测与更新检查，以及 Agent / 上下文工程 / MCP Client / 异步持久化等 P0 基础包。
-- 持续演进：插件生态、会话云同步、分享与协作、更完整的厂商/成本管理与发布工程。
+- 当前聚焦：Agent 主流程、Repo Mode、自然语言执行、Patch-to-PR、Checkpoint 时间线、MCP 权限中心、离线队列与项目记忆。
+- 暂停优先投入：企业四件套、插件市场治理、团队协作、MCP Server；保留已有基础代码，不再扩展。
 
 ## 项目结构
 
