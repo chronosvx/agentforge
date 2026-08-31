@@ -20,6 +20,7 @@ type Item struct {
 	ID        string    `json:"id"`
 	SessionID string    `json:"session_id"`
 	Message   string    `json:"message"`
+	Replay    bool      `json:"replay"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -39,8 +40,18 @@ func NewQueue(path string) *Queue {
 	return &Queue{path: path}
 }
 
-// Enqueue 追加一条消息到队列末尾。
+// Enqueue 追加一条消息到队列末尾。Replay 默认为 false。
 func (q *Queue) Enqueue(sessionID, message string) error {
+	return q.enqueue(sessionID, message, false)
+}
+
+// EnqueueReplay 追加一条已存在于内存会话中的重放消息。
+// Replay 为 true 时，FlushOffline 不会再次把该消息追加到会话。
+func (q *Queue) EnqueueReplay(sessionID, message string) error {
+	return q.enqueue(sessionID, message, true)
+}
+
+func (q *Queue) enqueue(sessionID, message string, replay bool) error {
 	if q == nil {
 		return fmt.Errorf("offline: nil queue")
 	}
@@ -56,6 +67,7 @@ func (q *Queue) Enqueue(sessionID, message string) error {
 		ID:        newID(),
 		SessionID: sessionID,
 		Message:   message,
+		Replay:    replay,
 		CreatedAt: time.Now().UTC(),
 	})
 	return q.writeLocked(items)
@@ -150,13 +162,13 @@ func (q *Queue) writeLocked(items []Item) error {
 
 	dir := filepath.Dir(q.path)
 	if dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return fmt.Errorf("offline: create queue dir: %w", err)
 		}
 	}
 
 	tmp := q.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("offline: write queue temp file: %w", err)
 	}
 	if err := os.Rename(tmp, q.path); err != nil {

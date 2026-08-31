@@ -60,6 +60,9 @@ func TestBackendStreamErrorQueuesOffline(t *testing.T) {
 	if item.Message != "hello offline" {
 		t.Fatalf("offline item Message = %q, want %q", item.Message, "hello offline")
 	}
+	if !item.Replay {
+		t.Fatalf("offline item Replay = false, want true because the user message is already in the session")
+	}
 
 	ev := waitForOfflineEvent(t, events)
 	if ev.Operation != "error" {
@@ -104,6 +107,18 @@ func TestBackendFlushOfflineRemovesQueuedItem(t *testing.T) {
 		t.Fatalf("FlushOffline() error: %v", err)
 	}
 
+	b.mu.Lock()
+	st := b.sessions["sess"]
+	if st == nil {
+		b.mu.Unlock()
+		t.Fatal("session was removed unexpectedly")
+	}
+	if len(st.messages) != 1 {
+		b.mu.Unlock()
+		t.Fatalf("len(st.messages) after replay = %d, want 1 (no duplicate user message)", len(st.messages))
+	}
+	b.mu.Unlock()
+
 	items, err := q.Pending()
 	if err != nil {
 		t.Fatalf("Pending() after flush error: %v", err)
@@ -111,6 +126,108 @@ func TestBackendFlushOfflineRemovesQueuedItem(t *testing.T) {
 	if len(items) != 0 {
 		t.Fatalf("len(Pending()) after flush = %d, want 0; items = %+v", len(items), items)
 	}
+}
+
+func TestBackendFlushOfflineKeepsItemWhenRetryFails(t *testing.T) {
+	q := offline.NewQueue(filepath.Join(t.TempDir(), "queue.json"))
+	p := &backendFakeProvider{streamErr: errors.New("still down")}
+	b := NewBackend(p, nil)
+	b.SetOfflineQueue(q)
+
+	ctx := context.Background()
+	if _, err := b.Open(ctx, "workspace", "sess", nil); err != nil {
+		t.Fatalf("Open() error: %v", err)
+	}
+
+	if _, err := b.Invoke(ctx, "sess", "chat", []any{"keep me"}); err != nil {
+		t.Fatalf("Invoke() error: %v", err)
+	}
+
+	item := waitForOfflineItem(t, q)
+	if !item.Replay {
+		t.Fatalf("offline item Replay = false, want true")
+	}
+	waitForStreamingDone(t, b, "sess")
+
+	// Provider 仍然失败：FlushOffline 应返回错误且保留队列项。
+	if err := b.FlushOffline(ctx); err == nil {
+		t.Fatal("FlushOffline() error = nil, want error when retry still fails")
+	}
+
+	items, err := q.Pending()
+	if err != nil {
+		t.Fatalf("Pending() after failed flush error: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(Pending()) after failed flush = %d, want 1", len(items))
+	}
+	if items[0].ID != item.ID || items[0].Message != "keep me" {
+		t.Fatalf("unexpected retained item: %+v", items[0])
+	}
+
+	b.mu.Lock()
+	st := b.sessions["sess"]
+	if st == nil {
+		b.mu.Unlock()
+		t.Fatal("session was removed unexpectedly")
+	}
+	if len(st.messages) != 1 {
+		b.mu.Unlock()
+		t.Fatalf("len(st.messages) after failed replay = %d, want 1 (no duplicate)", len(st.messages))
+	}
+	b.mu.Unlock()
+}
+
+func TestBackendFlushOfflineReopensClosedSession(t *testing.T) {
+	q := offline.NewQueue(filepath.Join(t.TempDir(), "queue.json"))
+	p := &backendFakeProvider{streamErr: errors.New("network down")}
+	b := NewBackend(p, nil)
+	b.SetOfflineQueue(q)
+
+	ctx := context.Background()
+	if _, err := b.Open(ctx, "workspace", "sess", nil); err != nil {
+		t.Fatalf("Open() error: %v", err)
+	}
+
+	if _, err := b.Invoke(ctx, "sess", "chat", []any{"reopen me"}); err != nil {
+		t.Fatalf("Invoke() error: %v", err)
+	}
+
+	item := waitForOfflineItem(t, q)
+	if !item.Replay {
+		t.Fatalf("offline item Replay = false, want true")
+	}
+	waitForStreamingDone(t, b, "sess")
+
+	if err := b.Close(ctx, "sess"); err != nil {
+		t.Fatalf("Close() error: %v", err)
+	}
+
+	// 会话已从内存中移除；恢复后 FlushOffline 应重新打开会话并补上用户消息。
+	p.streamErr = nil
+	if err := b.FlushOffline(ctx); err != nil {
+		t.Fatalf("FlushOffline() error: %v", err)
+	}
+
+	items, err := q.Pending()
+	if err != nil {
+		t.Fatalf("Pending() after flush error: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("len(Pending()) after flush = %d, want 0; items = %+v", len(items), items)
+	}
+
+	b.mu.Lock()
+	st := b.sessions["sess"]
+	if st == nil {
+		b.mu.Unlock()
+		t.Fatal("reopened session not present after flush")
+	}
+	if len(st.messages) != 1 || st.messages[0].Role != "user" || st.messages[0].Content != "reopen me" {
+		b.mu.Unlock()
+		t.Fatalf("reopened session messages = %+v, want one user message", st.messages)
+	}
+	b.mu.Unlock()
 }
 
 func waitForOfflineItem(t *testing.T, q *offline.Queue) offline.Item {

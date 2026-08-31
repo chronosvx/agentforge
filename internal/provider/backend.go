@@ -204,7 +204,7 @@ func (b *Backend) Invoke(ctx context.Context, channelID, method string, args []a
 	b.mu.Unlock()
 
 	b.persist(channelID, workspace, messages, contextMap, costMap)
-	go b.stream(st, channelID, model)
+	go b.stream(st, channelID, model, false)
 	return text, nil
 }
 
@@ -225,7 +225,7 @@ func (b *Backend) FlushOffline(ctx context.Context) error {
 
 	var firstErr error
 	for _, item := range items {
-		if _, err := b.Invoke(ctx, item.SessionID, "chat", []any{item.Message}); err != nil {
+		if err := b.sendOffline(ctx, item); err != nil {
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -236,6 +236,102 @@ func (b *Backend) FlushOffline(ctx context.Context) error {
 		}
 	}
 	return firstErr
+}
+
+// sendOffline 同步重发一条离线队列消息，并在收到终态事件后返回。
+// 返回 nil 表示重发成功；返回 error 表示重发失败，调用方应保留队列项。
+func (b *Backend) sendOffline(ctx context.Context, item offline.Item) error {
+	b.mu.Lock()
+	st := b.sessions[item.SessionID]
+	if st == nil {
+		b.mu.Unlock()
+		if _, err := b.Open(ctx, "", item.SessionID, nil); err != nil {
+			return fmt.Errorf("provider backend: reopen offline session %q: %w", item.SessionID, err)
+		}
+		b.mu.Lock()
+		st = b.sessions[item.SessionID]
+		if st == nil {
+			b.mu.Unlock()
+			return fmt.Errorf("provider backend: offline session %q unavailable after reopen", item.SessionID)
+		}
+		// 新打开/恢复的会话尚未包含这条用户消息，需要重新追加。
+		item.Replay = false
+	}
+
+	if st.streaming {
+		b.mu.Unlock()
+		return fmt.Errorf("provider backend: session %q is already streaming", item.SessionID)
+	}
+
+	if item.Replay {
+		// 消息已存在于内存会话中，只重放流，不重复追加。
+		st.streaming = true
+	} else {
+		st.messages = append(st.messages, client.Message{Role: "user", Content: item.Message})
+		st.seq++
+		ev := client.Event{
+			Operation: "event",
+			ChannelID: item.SessionID,
+			Version:   st.seq,
+			State:     b.stateLocked(st),
+		}
+		b.broadcastLocked(ev, st)
+		st.streaming = true
+	}
+
+	model := b.model
+	workspace := st.workspace
+	messages := append([]client.Message(nil), st.messages...)
+	contextMap := cloneMap(st.context)
+	costMap := cloneMap(st.cost)
+	doneCh := make(chan client.Event, 1)
+	st.subs[doneCh] = struct{}{}
+	b.mu.Unlock()
+
+	if !item.Replay {
+		b.persist(item.SessionID, workspace, messages, contextMap, costMap)
+	}
+
+	go b.stream(st, item.SessionID, model, true)
+
+	return b.waitForOfflineTerminal(ctx, item.SessionID, doneCh)
+}
+
+func (b *Backend) waitForOfflineTerminal(ctx context.Context, sessionID string, ch chan client.Event) error {
+	defer func() {
+		b.mu.Lock()
+		if st := b.sessions[sessionID]; st != nil {
+			delete(st.subs, ch)
+		}
+		b.mu.Unlock()
+	}()
+
+	timer := time.NewTimer(2 * time.Minute)
+	defer timer.Stop()
+
+	for {
+		select {
+		case ev, ok := <-ch:
+			if !ok {
+				return errors.New("provider backend: offline stream subscriber closed before terminal event")
+			}
+			switch ev.Operation {
+			case "done":
+				return nil
+			case "error":
+				if cost, ok := ev.State["cost"].(map[string]any); ok {
+					if msg, ok := cost["lastError"].(string); ok && msg != "" {
+						return errors.New(msg)
+					}
+				}
+				return errors.New("provider backend: offline stream failed")
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return fmt.Errorf("provider backend: offline stream timed out")
+		}
+	}
 }
 
 // Close 关闭指定会话，并关闭该会话的订阅流。
@@ -264,7 +360,7 @@ func (b *Backend) CloseConn() error {
 	return nil
 }
 
-func (b *Backend) stream(st *sessionState, channelID, model string) {
+func (b *Backend) stream(st *sessionState, channelID, model string, fromOffline bool) {
 	defer func() {
 		b.mu.Lock()
 		st.streaming = false
@@ -294,8 +390,8 @@ func (b *Backend) stream(st *sessionState, channelID, model string) {
 		Stream:   true,
 	})
 	if err != nil {
-		if offlineQueue != nil && userText != "" {
-			if enqueueErr := offlineQueue.Enqueue(channelID, userText); enqueueErr != nil {
+		if !fromOffline && offlineQueue != nil && userText != "" {
+			if enqueueErr := offlineQueue.EnqueueReplay(channelID, userText); enqueueErr != nil {
 				b.emitError(st, channelID, fmt.Errorf("provider backend: queue offline message: %w", enqueueErr))
 				return
 			}
@@ -315,6 +411,14 @@ func (b *Backend) stream(st *sessionState, channelID, model string) {
 		case StreamEventUsage:
 			b.emitUsage(st, channelID, ev.Usage)
 		case StreamEventError:
+			if !fromOffline && offlineQueue != nil && userText != "" {
+				if enqueueErr := offlineQueue.EnqueueReplay(channelID, userText); enqueueErr != nil {
+					b.emitError(st, channelID, fmt.Errorf("provider backend: queue offline message: %w", enqueueErr))
+					return
+				}
+				b.emitErrorWithOffline(st, channelID, ev.Err, true)
+				return
+			}
 			b.emitError(st, channelID, ev.Err)
 			return
 		case StreamEventDone:

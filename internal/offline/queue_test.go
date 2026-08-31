@@ -33,6 +33,9 @@ func TestQueueEnqueuePendingRemove(t *testing.T) {
 	if items[0].ID == "" {
 		t.Fatal("items[0].ID = empty, want generated id")
 	}
+	if items[0].Replay {
+		t.Fatalf("items[0].Replay = true, want false by default")
+	}
 	if items[0].CreatedAt.IsZero() {
 		t.Fatal("items[0].CreatedAt is zero, want set")
 	}
@@ -75,6 +78,55 @@ func TestQueuePersistsAcrossInstances(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].Message != "persisted" {
 		t.Fatalf("items from disk = %+v, want one persisted message", items)
+	}
+}
+
+func TestQueueFilePermissions(t *testing.T) {
+	base := t.TempDir()
+	dir := filepath.Join(base, "private")
+	path := filepath.Join(dir, "queue.json")
+	q := NewQueue(path)
+
+	if err := q.Enqueue("session-secret", "secret message"); err != nil {
+		t.Fatalf("Enqueue error: %v", err)
+	}
+
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat(queue file) error: %v", err)
+	}
+	if perm := fileInfo.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("queue file permission = %o, want 600", perm)
+	}
+
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("Stat(queue dir) error: %v", err)
+	}
+	if perm := dirInfo.Mode().Perm(); perm != 0o700 {
+		t.Fatalf("queue dir permission = %o, want 700", perm)
+	}
+}
+
+func TestQueueEnqueueReplayPersistsReplay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "queue.json")
+	q := NewQueue(path)
+	if err := q.EnqueueReplay("session-r", "replay me"); err != nil {
+		t.Fatalf("EnqueueReplay error: %v", err)
+	}
+
+	items, err := q.Pending()
+	if err != nil {
+		t.Fatalf("Pending() error: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(Pending()) = %d, want 1", len(items))
+	}
+	if !items[0].Replay {
+		t.Fatalf("items[0].Replay = false, want true")
+	}
+	if items[0].Message != "replay me" {
+		t.Fatalf("items[0].Message = %q, want %q", items[0].Message, "replay me")
 	}
 }
 
