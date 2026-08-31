@@ -13,10 +13,12 @@ import (
 	"github.com/chronosvx/agentforge/internal/secret"
 	"github.com/chronosvx/agentforge/internal/session"
 	"github.com/chronosvx/agentforge/internal/ui"
+	"io"
 	"net"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -66,6 +68,18 @@ func resolveProviderKey(cfg *config.Config) error {
 		return nil
 	}
 
+	if cfg.ProviderKeyStdin {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("read provider key from stdin: %w", err)
+		}
+		key := strings.TrimSpace(string(data))
+		if key == "" {
+			return errors.New("provider key from stdin is empty")
+		}
+		cfg.ProviderKey = key
+	}
+
 	useSecret := cfg.Keychain || cfg.SecretKey != "" || os.Getenv(secret.EnvSecretKey) != ""
 	if !useSecret {
 		return nil
@@ -102,6 +116,22 @@ func resolveProviderKey(cfg *config.Config) error {
 	}
 	cfg.ProviderKey = got
 	return nil
+}
+
+// warnPlaintextSecrets 对通过命令行/明文配置提供的敏感信息输出安全提示。
+func warnPlaintextSecrets(cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	if cfg.ProviderKey != "" && !cfg.ProviderKeyStdin && !cfg.Keychain {
+		fmt.Fprintln(os.Stderr, "agentforge: warning: provider key provided as plaintext; prefer --provider-key-stdin or --keychain")
+	}
+	if cfg.APIToken != "" {
+		fmt.Fprintln(os.Stderr, "agentforge: warning: api token provided as plaintext; prefer environment variable or keychain")
+	}
+	if cfg.SecretKey != "" {
+		fmt.Fprintln(os.Stderr, "agentforge: warning: secret key provided as plaintext; prefer DSH_SECRET_KEY environment variable")
+	}
 }
 
 // dial 根据配置连接 Provider 直连、真实 DSH Web API、真实 Channel 或内置 mock server。

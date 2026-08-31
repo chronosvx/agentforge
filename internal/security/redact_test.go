@@ -162,3 +162,38 @@ func TestRedactMapRecursively(t *testing.T) {
 		t.Fatalf("safe value changed: %#v", m["safe"])
 	}
 }
+
+func TestRedactMapRedactsNonSensitiveKeys(t *testing.T) {
+	m := map[string]any{
+		"message": "api key sk-1234567890abcdef1234567890abcdef",
+		"content": "Authorization: Bearer AbCdEf1234567890AbCdEf1234567890",
+		"safe":    "hello",
+	}
+	security.RedactMap(m)
+	if strings.Contains(m["message"].(string), "sk-1234567890abcdef1234567890abcdef") {
+		t.Fatalf("message secret leaked: %#v", m["message"])
+	}
+	if strings.Contains(m["content"].(string), "AbCdEf1234567890AbCdEf1234567890") {
+		t.Fatalf("content secret leaked: %#v", m["content"])
+	}
+	if m["safe"] != "hello" {
+		t.Fatalf("safe value changed: %#v", m["safe"])
+	}
+}
+
+func TestRedactMapString(t *testing.T) {
+	orig := map[string]string{
+		"message": "sk-1234567890abcdef1234567890abcdef",
+		"safe":    "hello",
+	}
+	got := security.RedactMapString(orig)
+	if orig["message"] != "sk-1234567890abcdef1234567890abcdef" {
+		t.Fatalf("original mutated: %#v", orig)
+	}
+	if strings.Contains(got["message"], "sk-1234567890abcdef1234567890abcdef") {
+		t.Fatalf("redacted value leaked: %#v", got["message"])
+	}
+	if got["safe"] != "hello" {
+		t.Fatalf("safe value changed: %#v", got["safe"])
+	}
+}

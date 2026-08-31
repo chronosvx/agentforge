@@ -91,6 +91,8 @@ func run() error {
 		return errors.New("--prompt is required with --headless")
 	}
 
+	warnPlaintextSecrets(cfg)
+
 	telemetry.SetEnabled(cfg.Telemetry)
 	if telemetry.Enabled() {
 		if err := telemetry.SetDataDir(cfg.DataDir); err != nil {

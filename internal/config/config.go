@@ -33,6 +33,7 @@ type Config struct {
 	Version           bool    // 仅打印版本并退出
 	Provider          string  // 直连厂商名：openai/deepseek/moonshot/kimi/zhipu/qwen/ollama
 	ProviderKey       string  // 直连厂商 API Key，多个用逗号分隔
+	ProviderKeyStdin  bool    // 为 true 时从 stdin 读取 Provider Key，避免出现在命令行
 	ProviderBaseURL   string  // 直连厂商 OpenAI 兼容 Base URL（可选）
 	Model             string  // 直连厂商模型名（可选）
 	Keychain          bool    // 为 true 时优先使用系统 Keychain 保存/读取 --provider-key
@@ -70,6 +71,7 @@ func Parse(args []string) (*Config, error) {
 	fs.BoolVar(&cfg.Version, "version", false, "打印版本并退出")
 	fs.StringVar(&cfg.Provider, "provider", "", "直连厂商名：openai/deepseek/moonshot/kimi/zhipu/qwen/ollama")
 	fs.StringVar(&cfg.ProviderKey, "provider-key", "", "直连厂商 API Key，多个用逗号分隔")
+	fs.BoolVar(&cfg.ProviderKeyStdin, "provider-key-stdin", false, "从 stdin 读取 Provider Key，避免出现在命令行")
 	fs.StringVar(&cfg.ProviderBaseURL, "provider-base-url", "", "直连厂商 OpenAI 兼容 Base URL（可选）")
 	fs.StringVar(&cfg.Model, "model", "", "直连厂商模型名（可选）")
 	fs.BoolVar(&cfg.Keychain, "keychain", false, "优先使用系统 Keychain/凭据管理器保存/读取 --provider-key")

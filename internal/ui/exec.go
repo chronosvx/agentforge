@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/chronosvx/agentforge/internal/executor"
+	"github.com/chronosvx/agentforge/internal/security"
 )
 
 // execResultMsg 承载 /exec 执行结果。
@@ -43,7 +44,9 @@ func (m *Model) execRunCmd(raw string) tea.Cmd {
 			ex = &executor.LocalExecutor{}
 		}
 
+		m.auditEvent("exec.run", map[string]any{"cmd": security.Redact(m.execCmd)})
 		res, err := ex.Run(ctx, executor.Spec{Command: "sh", Args: []string{"-c", rest}})
+		m.auditEvent("exec.complete", map[string]any{"cmd": security.Redact(m.execCmd), "error": err != nil})
 		if err != nil {
 			return execResultMsg{err: err}
 		}

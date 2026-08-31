@@ -65,6 +65,8 @@ func redactMap(m map[string]any) {
 			redactMap(val)
 		case []any:
 			redactSlice(val)
+		case string:
+			m[k] = Redact(val)
 		}
 	}
 }
@@ -77,11 +79,19 @@ func redactSlice(s []any) {
 		case []any:
 			redactSlice(val)
 		case string:
-			if looksLikeSecret(val) {
-				s[i] = "***"
-			}
+			s[i] = Redact(val)
 		}
 	}
+}
+
+// RedactMapString 返回一个新的 map[string]string，所有值都经过 Redact 脱敏。
+// 原 map 不会被修改。
+func RedactMapString(m map[string]string) map[string]string {
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = Redact(v)
+	}
+	return out
 }
 
 func isSensitiveKey(k string) bool {

@@ -37,6 +37,7 @@ func (m *Model) mcpCallCmd(name string, args map[string]any) tea.Cmd {
 	}
 	decision := m.mcpPolicy.Decide(name)
 	m.mcpAudit.Record(name, decision)
+	m.auditEvent("mcp.call", map[string]any{"tool": name, "mode": string(decision.Mode), "allowed": decision.Allowed, "requiresApproval": decision.RequiresApproval})
 
 	if !decision.Allowed {
 		return func() tea.Msg {
@@ -57,12 +58,15 @@ func (m *Model) mcpCallCmd(name string, args map[string]any) tea.Cmd {
 // executeMCPCall 实际执行 MCP CallTool 并返回 mcpCallMsg。
 func (m *Model) executeMCPCall(name string, args map[string]any) tea.Cmd {
 	return func() tea.Msg {
+		decision := m.mcpPolicy.Decide(name)
+		m.auditEvent("mcp.call", map[string]any{"tool": name, "mode": string(decision.Mode), "allowed": decision.Allowed, "requiresApproval": decision.RequiresApproval})
 		if m.mcpClient == nil {
 			return mcpCallMsg{name: name, err: errors.New("mcp not connected")}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		result, err := m.mcpClient.CallTool(ctx, name, args)
+		m.auditEvent("mcp.call.complete", map[string]any{"tool": name, "error": err != nil})
 		return mcpCallMsg{name: name, result: result, err: err}
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chronosvx/agentforge/internal/config"
 	"github.com/chronosvx/agentforge/internal/gitflow"
 	"github.com/chronosvx/agentforge/internal/repomode"
 	"github.com/chronosvx/agentforge/internal/session"
@@ -515,5 +516,31 @@ func runTestGit(t *testing.T, dir string, args ...string) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+}
+
+func TestWarnPlaintextSecrets(t *testing.T) {
+	cfg := &config.Config{
+		ProviderKey: "sk-test",
+		APIToken:    "token-test",
+		SecretKey:   "key-test",
+	}
+
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() error: %v", err)
+	}
+	os.Stderr = w
+	warnPlaintextSecrets(cfg)
+	_ = w.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+
+	text := string(out)
+	for _, want := range []string{"provider key provided as plaintext", "api token provided as plaintext", "secret key provided as plaintext"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("warning output does not contain %q:\n%s", want, text)
+		}
 	}
 }

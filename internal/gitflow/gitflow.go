@@ -6,19 +6,22 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io/fs"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
 // Config contains the settings needed by the gitflow helpers.
 type Config struct {
-	WorkDir   string
-	Branch    string
-	CommitMsg string
-	PRTitle   string
-	PRBody    string
-	Push      bool
+	WorkDir          string
+	Branch           string
+	CommitMsg        string
+	PRTitle          string
+	PRBody           string
+	Push             bool
+	AllowSecretFiles bool
 }
 
 // Result describes the outcome of an automated agent workflow.
@@ -57,9 +60,57 @@ func Diff(ctx context.Context, workDir string) (string, error) {
 	return out, nil
 }
 
+// CheckNoSecretFiles scans workDir for common secret files and returns an error
+// if any are found. It skips the .git directory.
+func CheckNoSecretFiles(workDir string) error {
+	var found []string
+	err := filepath.WalkDir(workDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if path != workDir && d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if isSecretFileName(d.Name()) {
+			found = append(found, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if len(found) > 0 {
+		return fmt.Errorf("gitflow: refusing to commit; secret files present: %s", strings.Join(found, ", "))
+	}
+	return nil
+}
+
+func isSecretFileName(name string) bool {
+	lower := strings.ToLower(name)
+	switch {
+	case lower == ".env", lower == ".netrc", lower == "credentials.json",
+		lower == "secrets.json", lower == "id_rsa", lower == "id_ed25519":
+		return true
+	case strings.HasPrefix(lower, ".env."):
+		return true
+	case strings.HasSuffix(lower, ".pem"), strings.HasSuffix(lower, ".key"),
+		strings.HasSuffix(lower, ".secrets.json"):
+		return true
+	}
+	return false
+}
+
 // Commit stages all changes, commits them with cfg.CommitMsg (or a default
 // message when empty), and returns the resulting commit SHA.
 func Commit(ctx context.Context, cfg Config) (string, error) {
+	if !cfg.AllowSecretFiles {
+		if err := CheckNoSecretFiles(cfg.WorkDir); err != nil {
+			return "", err
+		}
+	}
 	if _, err := runGit(ctx, cfg.WorkDir, "add", "-A"); err != nil {
 		return "", err
 	}

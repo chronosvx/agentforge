@@ -230,3 +230,36 @@ echo "https://example.com/pr/456"
 		t.Fatalf("fake gh args do not contain default title:\n%s", got)
 	}
 }
+
+func TestCheckNoSecretFilesFindsEnv(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("KEY=value\n"), 0o600); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
+	err := gitflow.CheckNoSecretFiles(dir)
+	if err == nil || !strings.Contains(err.Error(), ".env") {
+		t.Fatalf("CheckNoSecretFiles() error = %v, want .env detection", err)
+	}
+}
+
+func TestCommitRefusesWhenEnvPresent(t *testing.T) {
+	dir := initRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("KEY=value\n"), 0o600); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
+	_, err := gitflow.Commit(context.Background(), gitflow.Config{WorkDir: dir, CommitMsg: "should fail"})
+	if err == nil || !strings.Contains(err.Error(), "secret files present") {
+		t.Fatalf("Commit() error = %v, want secret-file refusal", err)
+	}
+}
+
+func TestCommitAllowsWhenAllowSecretFilesTrue(t *testing.T) {
+	dir := initRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("KEY=value\n"), 0o600); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
+	_, err := gitflow.Commit(context.Background(), gitflow.Config{WorkDir: dir, CommitMsg: "allow", AllowSecretFiles: true})
+	if err != nil {
+		t.Fatalf("Commit() with AllowSecretFiles error = %v, want success", err)
+	}
+}

@@ -73,6 +73,15 @@ func (f *fakeAudit) eventNames() []string {
 	return names
 }
 
+func containsAuditEvent(entries []auditEntry, event string) bool {
+	for _, e := range entries {
+		if e.event == event {
+			return true
+		}
+	}
+	return false
+}
+
 func TestSendCmdTo(t *testing.T) {
 	fb := &fakeBackend{}
 	m := Model{cl: fb, channelID: "s1"}
@@ -1431,6 +1440,43 @@ func TestMCPConfirmDoesNotCallToolImmediately(t *testing.T) {
 	}
 	if !strings.Contains(m.status, "/mcp-approve") {
 		t.Fatalf("status = %q, want /mcp-approve hint", m.status)
+	}
+}
+
+func TestMCPAuditEventCalled(t *testing.T) {
+	audit := &fakeAudit{}
+	m := Model{
+		mcpPolicy: mcpperm.NewPolicy(mcpperm.ModeDeny),
+		mcpAudit:  mcpperm.NewAuditLog(),
+		auditFn:   audit.record,
+	}
+
+	cmd := m.mcpCallCmd("secrets.read", nil)
+	if cmd == nil {
+		t.Fatal("expected non-nil tea.Cmd for denied mcp call")
+	}
+	_ = cmd()
+
+	if !containsAuditEvent(audit.entries, "mcp.call") {
+		t.Fatalf("expected mcp.call audit event, got %#v", audit.eventNames())
+	}
+}
+
+func TestExecAuditEventCalled(t *testing.T) {
+	audit := &fakeAudit{}
+	m := Model{
+		auditFn: audit.record,
+		execCmd: "echo hi",
+	}
+
+	cmd := m.execRunCmd("echo hi")
+	if cmd == nil {
+		t.Fatal("expected non-nil tea.Cmd for exec")
+	}
+	_ = cmd()
+
+	if !containsAuditEvent(audit.entries, "exec.run") {
+		t.Fatalf("expected exec.run audit event, got %#v", audit.eventNames())
 	}
 }
 

@@ -193,3 +193,13 @@ func TestParseTelemetryDefaultsFalse(t *testing.T) {
 		t.Fatal("expected telemetry false by default")
 	}
 }
+
+func TestParseProviderKeyStdinFlag(t *testing.T) {
+	cfg, err := config.Parse([]string{"--provider-key-stdin"})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !cfg.ProviderKeyStdin {
+		t.Fatal("expected ProviderKeyStdin true")
+	}
+}
