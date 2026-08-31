@@ -17,6 +17,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/chronosvx/agentforge/internal/agent"
+	"github.com/chronosvx/agentforge/internal/agentflow"
 	"github.com/chronosvx/agentforge/internal/client"
 	"github.com/chronosvx/agentforge/internal/config"
 	"github.com/chronosvx/agentforge/internal/contextx"
@@ -25,6 +26,7 @@ import (
 	"github.com/chronosvx/agentforge/internal/mcp"
 	"github.com/chronosvx/agentforge/internal/mcpperm"
 	"github.com/chronosvx/agentforge/internal/memory"
+	"github.com/chronosvx/agentforge/internal/multiagent"
 	"github.com/chronosvx/agentforge/internal/plugin"
 	"github.com/chronosvx/agentforge/internal/search"
 	"github.com/chronosvx/agentforge/internal/security"
@@ -88,6 +90,7 @@ const (
 	panelAgent
 	panelMCP
 	panelExec
+	panelMulti
 )
 
 // commandPaletteCommands 是命令面板中可搜索并执行的本地命令。
@@ -98,7 +101,7 @@ var commandPaletteCommands = []string{
 	"/agent", "/agent-new", "/agent-reset", "/checkpoint", "/rewind", "/mcp", "/mcp-call",
 	"/mcp-auto", "/mcp-confirm", "/mcp-deny", "/mcp-audit", "/timeline", "/fork",
 	"/remember", "/forget", "/memory",
-	"/exec",
+	"/exec", "/multi", "/agents",
 }
 
 // Model 是 Bubble Tea 的根模型。
@@ -157,6 +160,15 @@ type Model struct {
 	checkpoints  *contextx.CheckpointStore
 	timeline     *timeline.Timeline
 	memoryStore  *memory.MemoryStore
+
+	multiTasks   []multiagent.Task
+	multiResults []multiagent.Result
+	multiStates  map[string]string
+	multiOutputs map[string]string
+	multiEventCh chan multiagent.Event
+	multiDoneCh  chan multiAgentDoneMsg
+	multiRunning bool
+	multiCursor  int
 
 	execOpen     bool
 	executorType string
@@ -488,6 +500,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			data = []byte(fmt.Sprint(msg.result))
 		}
 		m.status = "mcp result: " + truncateText(sanitizeTerminalText(string(data)), 160)
+
+	case multiAgentEventMsg:
+		if m.multiStates == nil {
+			m.multiStates = map[string]string{}
+		}
+		switch msg.Event.Type {
+		case multiagent.EventTaskStarted:
+			m.multiStates[msg.Event.TaskID] = "running"
+			m.status = "multi-agent running: " + msg.Event.TaskID
+		case multiagent.EventTaskDone:
+			m.multiStates[msg.Event.TaskID] = "done"
+			if msg.Event.Output != "" {
+				m.multiOutputs[msg.Event.TaskID] = msg.Event.Output
+			}
+			m.status = "multi-agent done: " + msg.Event.TaskID
+		case multiagent.EventTaskFailed:
+			m.multiStates[msg.Event.TaskID] = "failed"
+			if msg.Event.Output != "" {
+				m.multiOutputs[msg.Event.TaskID] = msg.Event.Output
+			}
+			m.status = "multi-agent failed: " + msg.Event.TaskID
+		}
+		cmds = append(cmds, m.waitMultiAgentCmd())
+
+	case multiAgentDoneMsg:
+		m.multiRunning = false
+		m.multiResults = msg.Results
+		if msg.Err != nil {
+			m.status = "multi-agent finished with errors: " + msg.Err.Error()
+		} else {
+			m.status = "multi-agent finished"
+		}
+		if m.panel != panelMulti {
+			m.panel = panelMulti
+		}
 
 	case sentMsg:
 		m.status = "sent"
@@ -1829,6 +1876,24 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 		} else {
 			m.status = "memory: " + strings.Join(lines, "; ")
 		}
+	case "/multi":
+		rest := strings.TrimSpace(strings.TrimPrefix(cmd, "/multi"))
+		if rest == "" {
+			m.status = "usage: /multi <prompt1,prompt2,...>"
+			break
+		}
+		prompts := splitCommaList(rest)
+		if len(prompts) == 0 {
+			m.status = "usage: /multi <prompt1,prompt2,...>"
+			break
+		}
+		return m.startMultiAgent(prompts)
+	case "/agents":
+		if m.panel == panelMulti {
+			m.panel = panelNone
+		} else {
+			m.panel = panelMulti
+		}
 	case "/exec":
 		rest := strings.TrimSpace(strings.TrimPrefix(cmd, "/exec"))
 		if rest == "" {
@@ -2138,6 +2203,74 @@ func (m *Model) mcpCallCmd(name string, args map[string]any) tea.Cmd {
 	}
 }
 
+// startMultiAgent 启动一个多 Agent 并行执行任务，并打开多 Agent 面板。
+func (m *Model) startMultiAgent(prompts []string) tea.Cmd {
+	tasks := make([]multiagent.Task, 0, len(prompts))
+	for i, p := range prompts {
+		tasks = append(tasks, multiagent.Task{
+			ID:      fmt.Sprintf("task-%d", i),
+			Prompt:  p,
+			WorkDir: m.workspaceDir(),
+		})
+	}
+	m.multiTasks = tasks
+	m.multiResults = nil
+	m.multiStates = map[string]string{}
+	m.multiOutputs = map[string]string{}
+	m.multiRunning = true
+	m.multiCursor = 0
+	m.panel = panelMulti
+	m.status = fmt.Sprintf("multi-agent started: %d tasks", len(tasks))
+
+	evCh := make(chan multiagent.Event, 64)
+	doneCh := make(chan multiAgentDoneMsg, 1)
+	m.multiEventCh = evCh
+	m.multiDoneCh = doneCh
+
+	runner := multiagent.NewRunner(func(ctx context.Context, task multiagent.Task) (string, error) {
+		r := agentflow.NewRunner(agentflow.NewStaticPlanner(), nil)
+		res, err := r.Run(ctx, agentflow.Request{
+			Prompt:      task.Prompt,
+			WorkDir:     task.WorkDir,
+			AutoApprove: true,
+			TestCmd:     task.TestCmd,
+		})
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("phase=%s diff=%d", res.Session.Phase, len(res.Diff)), nil
+	})
+	runner.OnEvent = func(ev multiagent.Event) {
+		evCh <- ev
+	}
+	go func() {
+		results, err := runner.Run(context.Background(), tasks, nil)
+		doneCh <- multiAgentDoneMsg{Results: results, Err: err}
+	}()
+
+	return m.waitMultiAgentCmd()
+}
+
+// waitMultiAgentCmd 等待多 Agent 运行的下一个事件或最终结果。
+func (m *Model) waitMultiAgentCmd() tea.Cmd {
+	return func() tea.Msg {
+		select {
+		case ev := <-m.multiEventCh:
+			return multiAgentEventMsg{Event: ev}
+		case done := <-m.multiDoneCh:
+			return done
+		}
+	}
+}
+
+// workspaceDir 返回当前工作目录，缺省为当前目录。
+func (m *Model) workspaceDir() string {
+	if m.cfg != nil && strings.TrimSpace(m.cfg.Workspace) != "" {
+		return strings.TrimSpace(m.cfg.Workspace)
+	}
+	return "."
+}
+
 // pluginCommand 识别命令面板/输入框中的插件命令并返回执行 tea.Cmd。
 // 支持 /plugin:<插件名>:<命令> 与不冲突的 /<命令> 短别名。
 func (m *Model) pluginCommand(name string, args []string) tea.Cmd {
@@ -2249,6 +2382,8 @@ func (m *Model) renderPanel() string {
 		return "\n" + style.Render(m.renderMCPPanel())
 	case panelExec:
 		return "\n" + style.Render(m.renderExecPanel())
+	case panelMulti:
+		return "\n" + style.Render(m.renderMultiAgentPanel())
 	default:
 		return ""
 	}
@@ -2557,6 +2692,36 @@ func (m *Model) renderAgentPanel() string {
 		for i, a := range s.Actions {
 			b.WriteString(fmt.Sprintf("  %d. %s [%s] %s\n", i+1, a.ID, a.Status, a.Description))
 		}
+	}
+	return b.String()
+}
+
+// renderMultiAgentPanel 渲染多 Agent 执行面板。
+func (m *Model) renderMultiAgentPanel() string {
+	var b strings.Builder
+	b.WriteString("Multi-Agent\n")
+	if len(m.multiTasks) == 0 {
+		b.WriteString("Use /multi <prompt1,prompt2,...> to start.\n")
+		return b.String()
+	}
+	for i, t := range m.multiTasks {
+		state := "pending"
+		if s, ok := m.multiStates[t.ID]; ok {
+			state = s
+		}
+		marker := " "
+		if i == m.multiCursor {
+			marker = ">"
+		}
+		b.WriteString(fmt.Sprintf("%s[%d] %s [%s] %s\n", marker, i+1, t.ID, state, truncateText(t.Prompt, 40)))
+		if out, ok := m.multiOutputs[t.ID]; ok && out != "" {
+			b.WriteString("    " + truncateText(out, 80) + "\n")
+		}
+	}
+	if m.multiRunning {
+		b.WriteString("\nRunning...\n")
+	} else if len(m.multiResults) > 0 {
+		b.WriteString(fmt.Sprintf("\nDone: %d tasks\n", len(m.multiResults)))
 	}
 	return b.String()
 }
@@ -3128,6 +3293,17 @@ func skillState(enabled bool) string {
 	return "off"
 }
 
+// splitCommaList 将逗号分隔的字符串拆分为去空白的列表。
+func splitCommaList(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
 // memoryProject 返回当前项目记忆使用的 project 标识。
 func (m *Model) memoryProject() string {
 	if m.cfg != nil && strings.TrimSpace(m.cfg.Workspace) != "" {
@@ -3371,6 +3547,15 @@ type mcpCallMsg struct {
 	result           any
 	err              error
 	requiresApproval bool
+}
+
+type multiAgentEventMsg struct {
+	Event multiagent.Event
+}
+
+type multiAgentDoneMsg struct {
+	Results []multiagent.Result
+	Err     error
 }
 
 type sentMsg struct {

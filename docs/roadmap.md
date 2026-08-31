@@ -85,7 +85,7 @@ agentforge 的定位收敛为：
 - [x] 更新检查：启动时静默检查
 - [x] 项目记忆：UI `/remember`、`/forget`、`/memory`
 - [x] 多 Agent 执行基础：`internal/multiagent` + `agentforge multiagent`
-- [ ] 多 Agent 可视化 UI 编排（下一步）
+- [x] 多 Agent 可视化 UI 编排（基础面板：`/multi` 与 `/agents`）
 
 ## 新增重点
 

@@ -28,10 +28,29 @@ type Result struct {
 	Err    error
 }
 
+// EventType describes a multi-agent scheduling event.
+type EventType string
+
+const (
+	EventTaskStarted EventType = "task_started"
+	EventTaskDone    EventType = "task_done"
+	EventTaskFailed  EventType = "task_failed"
+)
+
+// Event is emitted while a multi-agent run is in progress.
+type Event struct {
+	Type   EventType
+	TaskID string
+	Output string
+	Err    error
+}
+
 // Runner executes tasks while respecting their dependencies.
 type Runner struct {
 	// Execute runs one task and returns its output.
 	Execute func(ctx context.Context, task Task) (string, error)
+	// OnEvent, when non-nil, is called synchronously for scheduling events.
+	OnEvent func(Event)
 }
 
 // NewRunner returns a Runner using execute as the task executor.
@@ -97,12 +116,15 @@ func (r *Runner) Run(ctx context.Context, tasks []Task, deps map[string][]string
 					done <- struct{}{}
 				}()
 
+				r.emit(Event{Type: EventTaskStarted, TaskID: task.ID})
 				output, err := r.Execute(ctx, task)
 				results[idx].Output = output
 				results[idx].Err = err
 				if err != nil {
+					r.emit(Event{Type: EventTaskFailed, TaskID: task.ID, Output: output, Err: err})
 					_ = o.MarkFailed(st.ID)
 				} else {
+					r.emit(Event{Type: EventTaskDone, TaskID: task.ID, Output: output})
 					_ = o.MarkDone(st.ID)
 				}
 			}(st, task, idx)
@@ -125,4 +147,10 @@ func (r *Runner) Run(ctx context.Context, tasks []Task, deps map[string][]string
 		return results, errors.New("multiagent: one or more tasks failed")
 	}
 	return results, nil
+}
+
+func (r *Runner) emit(ev Event) {
+	if r != nil && r.OnEvent != nil {
+		r.OnEvent(ev)
+	}
 }
