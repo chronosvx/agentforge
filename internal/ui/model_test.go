@@ -1355,3 +1355,104 @@ func TestKeyUIStringsNotHardcodedChineseInModel(t *testing.T) {
 		}
 	}
 }
+
+func TestNewInitializesMCPPolicyAndTimeline(t *testing.T) {
+	m := New(&config.Config{DataDir: t.TempDir()}, &fakeBackend{}, nil)
+	if m.mcpPolicy == nil {
+		t.Fatal("expected mcpPolicy to be initialized")
+	}
+	if m.mcpAudit == nil {
+		t.Fatal("expected mcpAudit to be initialized")
+	}
+	if m.timeline == nil {
+		t.Fatal("expected timeline to be initialized")
+	}
+	if got := m.mcpPolicy.Mode("tool"); got != "confirm" {
+		t.Fatalf("default policy mode = %q, want confirm", got)
+	}
+}
+
+func TestMCPSetCommandsUpdatePolicy(t *testing.T) {
+	m := New(&config.Config{DataDir: t.TempDir()}, &fakeBackend{}, nil)
+
+	m.handleCommand("/mcp-auto files.read")
+	if got := m.mcpPolicy.Mode("files.read"); got != "auto" {
+		t.Fatalf("Mode after /mcp-auto = %q, want auto", got)
+	}
+	m.handleCommand("/mcp-confirm files.read")
+	if got := m.mcpPolicy.Mode("files.read"); got != "confirm" {
+		t.Fatalf("Mode after /mcp-confirm = %q, want confirm", got)
+	}
+	m.handleCommand("/mcp-deny files.read")
+	if got := m.mcpPolicy.Mode("files.read"); got != "deny" {
+		t.Fatalf("Mode after /mcp-deny = %q, want deny", got)
+	}
+}
+
+func TestMCPCallDeniedReturnsErrorAndRecordsAudit(t *testing.T) {
+	m := New(&config.Config{DataDir: t.TempDir()}, &fakeBackend{}, nil)
+	m.handleCommand("/mcp-deny secrets.read")
+
+	cmd := m.mcpCallCmd("secrets.read", nil)
+	msg, ok := cmd().(mcpCallMsg)
+	if !ok {
+		t.Fatalf("unexpected msg type: %T", msg)
+	}
+	if msg.err == nil || !strings.Contains(msg.err.Error(), "denied by policy") {
+		t.Fatalf("expected denied error, got %v", msg.err)
+	}
+	entries := m.mcpAudit.List()
+	if len(entries) != 1 || entries[0].Tool != "secrets.read" {
+		t.Fatalf("expected one audit entry for secrets.read, got %#v", entries)
+	}
+	if entries[0].Decision.Allowed {
+		t.Fatalf("expected denied decision to be not allowed, got %#v", entries[0].Decision)
+	}
+}
+
+func TestCheckpointAddsToTimelineAndRewindRestores(t *testing.T) {
+	m := New(&config.Config{DataDir: t.TempDir()}, &fakeBackend{}, nil)
+	m.messages = []client.Message{{Role: "user", Content: "hello"}}
+	m.handleCommand("/checkpoint first")
+	if len(m.timeline.List()) != 1 {
+		t.Fatalf("timeline length after checkpoint = %d, want 1", len(m.timeline.List()))
+	}
+	snapID := m.timeline.List()[0].ID
+
+	m.messages = []client.Message{{Role: "assistant", Content: "changed"}}
+	m.handleCommand("/rewind " + snapID)
+	if len(m.messages) != 1 || m.messages[0].Content != "hello" {
+		t.Fatalf("messages after timeline rewind = %#v, want original hello", m.messages)
+	}
+	if !strings.Contains(m.status, "rewound to timeline") {
+		t.Fatalf("unexpected rewind status: %q", m.status)
+	}
+}
+
+func TestTimelineAndForkCommands(t *testing.T) {
+	m := New(&config.Config{DataDir: t.TempDir()}, &fakeBackend{}, nil)
+	m.messages = []client.Message{{Role: "user", Content: "hello"}}
+	m.handleCommand("/checkpoint first")
+	m.handleCommand("/timeline")
+	if !strings.Contains(m.status, "timeline:") || !strings.Contains(m.status, "first") {
+		t.Fatalf("unexpected timeline status: %q", m.status)
+	}
+
+	m.handleCommand("/fork branch")
+	if !strings.HasPrefix(m.status, "forked timeline: ") {
+		t.Fatalf("unexpected fork status: %q", m.status)
+	}
+	if len(m.timeline.List()) != 2 {
+		t.Fatalf("timeline length after fork = %d, want 2", len(m.timeline.List()))
+	}
+}
+
+func TestMCPAuditCommandShowsEntries(t *testing.T) {
+	m := New(&config.Config{DataDir: t.TempDir()}, &fakeBackend{}, nil)
+	m.handleCommand("/mcp-deny secrets.read")
+	m.mcpCallCmd("secrets.read", nil)()
+	m.handleCommand("/mcp-audit")
+	if !strings.Contains(m.status, "secrets.read") || !strings.Contains(m.status, "deny false false") {
+		t.Fatalf("unexpected audit status: %q", m.status)
+	}
+}

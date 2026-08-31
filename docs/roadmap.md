@@ -73,6 +73,20 @@ agentforge 的定位收敛为：
 - **Agent 主流程**：`internal/agent`
   - 把“计划 → 审批 → 执行 → 测试 → Diff 评审 → 回滚”做成端到端可用体验。
 
+## 当前进度（开发快照）
+
+- [x] Agent 主流程端到端 Demo：`agentforge agent`
+- [x] Repo Mode：`internal/repomode` + `agent --repo`
+- [x] 自然语言执行：`agent run/static/llm`
+- [x] Patch-to-PR：`internal/gitflow` + `agent --commit/--push/--pr`
+- [x] Checkpoint 时间线：`internal/timeline` + UI `/timeline`、`/fork`
+- [x] MCP 权限中心：`internal/mcpperm` + UI `/mcp-auto/confirm/deny/audit`
+- [x] 离线队列：Provider 后端 + 主流程周期重发
+- [x] 更新检查：启动时静默检查
+- [x] 项目记忆：UI `/remember`、`/forget`、`/memory`
+- [x] 多 Agent 执行基础：`internal/multiagent` + `agentforge multiagent`
+- [ ] 多 Agent 可视化 UI 编排（下一步）
+
 ## 新增重点
 
 ### P0：核心闭环（先做到“一个人每天都会用”）
