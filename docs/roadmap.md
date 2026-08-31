@@ -86,7 +86,7 @@ agentforge 的定位收敛为：
 - [x] 项目记忆：UI `/remember`、`/forget`、`/memory`
 - [x] 多 Agent 执行基础：`internal/multiagent` + `agentforge multiagent`
 - [x] 多 Agent 可视化 UI 编排（依赖树/子任务树：`/multi` JSON 依赖与 `/agents` 面板）
-- [x] 真实 LLM 验收：`scripts/acceptance-llm.sh`（`agent --planner llm --repo --yes`）
+- [x] 真实 LLM 验收：`scripts/acceptance-llm.sh` 已用 DeepSeek 跑通并成功产生代码 Diff（`agent --planner llm --repo --yes`）
 
 ## 新增重点
 
