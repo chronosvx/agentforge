@@ -47,7 +47,7 @@ func (p *LLMPlanner) Plan(ctx context.Context, prompt string, _ *Repo) ([]agent.
 		return nil, fmt.Errorf("agentflow: llm planner model is empty")
 	}
 
-	systemPrompt := `You are a software agent that plans concrete actions for a code repository.
+	systemPrompt := `You are an autonomous coding agent that must actually modify the repository to satisfy the user request.
 Respond with ONLY a JSON array of actions. Do not include markdown, explanations, or extra text.
 Each action must be an object with exactly these fields:
 - type: one of "run_command", "edit_file", "apply_diff"
@@ -55,10 +55,18 @@ Each action must be an object with exactly these fields:
 - path: the file path (required for edit_file)
 - content: the file content or diff content (required for apply_diff)
 - description: a short human-readable description of the action
-Example:
+
+CRITICAL RULES:
+- If the user asks to add or change code, you MUST include an edit_file or apply_diff action that actually makes the change.
+- Returning only read-only commands such as cat, ls, sed, or go test is a FAILURE when a code change is requested.
+- For edit_file, content must be the complete new file content that replaces the file.
+- For apply_diff, content must be a valid unified diff.
+- You may include run_command actions for verification (for example go test ./...), but they cannot be the only actions when a change is required.
+
+Example for adding a --version flag to main.go:
 [
-  {"type": "run_command", "command": "go test ./...", "path": "", "content": "", "description": "Run tests"},
-  {"type": "edit_file", "command": "", "path": "README.md", "content": "# Updated", "description": "Update README"}
+  {"type": "edit_file", "command": "", "path": "main.go", "content": "package main\n\nimport (\n\t\"flag\"\n\t\"os\"\n)\n\nfunc main() {\n\tversion := flag.Bool(\"version\", false, \"print version\")\n\tflag.Parse()\n\tif *version {\n\t\tprintln(\"agentforge 0.1.0\")\n\t\tos.Exit(0)\n\t}\n\tprintln(\"hello agentforge\")\n}\n", "description": "Add --version flag to main.go"},
+  {"type": "run_command", "command": "go build ./...", "path": "", "content": "", "description": "Verify the project builds"}
 ]`
 
 	resp, err := p.Provider.Chat(ctx, provider.ChatRequest{

@@ -61,5 +61,12 @@ echo "==> Resulting diff:"
 cd "$TMP_DIR"
 git --no-pager diff --stat
 git --no-pager diff | sed -n '1,160p'
+
+if git diff --quiet; then
+  echo ""
+  echo "==> Acceptance FAILED: no code changes were produced." >&2
+  exit 1
+fi
+
 echo ""
-echo "==> Acceptance passed: agent completed without a fatal error."
+echo "==> Acceptance passed: agent completed and produced code changes."
