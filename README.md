@@ -485,6 +485,16 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Version 0.3.0 -AddToPath
 ```
 
+### 环境自检
+
+安装后可以先运行：
+
+```bash
+agentforge doctor
+```
+
+它会检查 Go、DSH CLI、Git、GitHub CLI、系统 Keychain 后端和数据目录权限，帮助你快速定位环境问题。
+
 ## 发布构建
 
 ```bash

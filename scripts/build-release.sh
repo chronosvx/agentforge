@@ -18,5 +18,9 @@ for os in darwin linux windows; do
   done
 done
 
+echo "==> generating checksums"
+(cd dist && shasum -a 256 agentforge-* > checksums.txt)
+
 echo "==> release binaries in dist/"
 ls -lh dist/
+cat dist/checksums.txt
