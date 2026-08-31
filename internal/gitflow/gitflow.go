@@ -130,7 +130,15 @@ func runCmd(ctx context.Context, dir, name string, args ...string) (string, erro
 
 	err := cmd.Run()
 	if err != nil {
-		detail := strings.TrimSpace(stderr.String())
+		out := strings.TrimSpace(stdout.String())
+		errText := strings.TrimSpace(stderr.String())
+		detail := out
+		if errText != "" {
+			if detail != "" {
+				detail += "\n"
+			}
+			detail += errText
+		}
 		cmdline := name
 		if len(args) > 0 {
 			cmdline += " " + strings.Join(args, " ")

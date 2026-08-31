@@ -163,3 +163,50 @@ func waitForStreamingDone(t *testing.T, b *Backend, sessionID string) {
 	}
 	t.Fatal("timed out waiting for streaming to finish")
 }
+
+func TestBackendBroadcastLockedDoesNotDropTerminalEvent(t *testing.T) {
+	for _, op := range []string{"done", "error"} {
+		t.Run(op, func(t *testing.T) {
+			b := NewBackend(nil, nil)
+			ch := make(chan client.Event, 1)
+			// Fill the subscriber buffer so a non-blocking send would drop the
+			// terminal event.
+			ch <- client.Event{Operation: "event", ChannelID: "sess", Version: 1}
+			st := &sessionState{
+				subs: map[chan client.Event]struct{}{
+					ch: {},
+				},
+			}
+
+			finished := make(chan struct{})
+			go func() {
+				defer close(finished)
+				b.broadcastLocked(client.Event{Operation: op, ChannelID: "sess", Version: 2}, st)
+			}()
+
+			select {
+			case ev := <-ch:
+				if ev.Operation != "event" {
+					t.Fatalf("first event Operation = %q, want %q", ev.Operation, "event")
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("timed out reading buffered event")
+			}
+
+			select {
+			case ev := <-ch:
+				if ev.Operation != op {
+					t.Fatalf("terminal event Operation = %q, want %q", ev.Operation, op)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatalf("terminal %q event was dropped or not delivered", op)
+			}
+
+			select {
+			case <-finished:
+			case <-time.After(2 * time.Second):
+				t.Fatalf("broadcastLocked did not finish after %q event was delivered", op)
+			}
+		})
+	}
+}

@@ -456,6 +456,12 @@ func (b *Backend) closeStateLocked(st *sessionState) {
 
 func (b *Backend) broadcastLocked(ev client.Event, st *sessionState) {
 	for ch := range st.subs {
+		if ev.Operation == "done" || ev.Operation == "error" {
+			// Terminal events must not be dropped: block until the subscriber
+			// is ready to receive them so UI/headless cannot miss completion.
+			ch <- ev
+			continue
+		}
 		select {
 		case ch <- ev:
 		default:

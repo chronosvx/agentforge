@@ -17,6 +17,7 @@ import (
 	"github.com/chronosvx/agentforge/internal/client"
 	"github.com/chronosvx/agentforge/internal/config"
 	"github.com/chronosvx/agentforge/internal/i18n"
+	"github.com/chronosvx/agentforge/internal/mcpperm"
 	"github.com/chronosvx/agentforge/internal/multiagent"
 	"github.com/chronosvx/agentforge/internal/plugin"
 	"github.com/chronosvx/agentforge/internal/security"
@@ -1411,6 +1412,28 @@ func TestMCPCallDeniedReturnsErrorAndRecordsAudit(t *testing.T) {
 	}
 }
 
+func TestMCPConfirmDoesNotCallToolImmediately(t *testing.T) {
+	m := Model{
+		mcpPolicy: mcpperm.NewPolicy(mcpperm.ModeConfirm),
+		mcpAudit:  mcpperm.NewAuditLog(),
+		mcpClient: nil,
+	}
+
+	cmd := m.mcpCallCmd("files.read", map[string]any{"path": "/tmp"})
+	if cmd != nil {
+		t.Fatalf("expected nil tea.Cmd when approval required, got %T", cmd)
+	}
+	if m.pendingMCPName != "files.read" {
+		t.Fatalf("pendingMCPName = %q, want files.read", m.pendingMCPName)
+	}
+	if m.pendingMCPArgs == nil || m.pendingMCPArgs["path"] != "/tmp" {
+		t.Fatalf("pendingMCPArgs = %#v, want stored args", m.pendingMCPArgs)
+	}
+	if !strings.Contains(m.status, "/mcp-approve") {
+		t.Fatalf("status = %q, want /mcp-approve hint", m.status)
+	}
+}
+
 func TestCheckpointAddsToTimelineAndRewindRestores(t *testing.T) {
 	m := New(&config.Config{DataDir: t.TempDir()}, &fakeBackend{}, nil)
 	m.messages = []client.Message{{Role: "user", Content: "hello"}}
@@ -1487,5 +1510,25 @@ func TestRenderMultiAgentPanelShowsDependencyTree(t *testing.T) {
 	got := m.renderMultiAgentPanel()
 	if !strings.Contains(got, "a [done]") || !strings.Contains(got, "b [running]") {
 		t.Fatalf("unexpected multi-agent panel:\n%s", got)
+	}
+}
+
+func TestMultiCommandRequiresRunConfirmation(t *testing.T) {
+	m := Model{}
+	cmd := m.handleCommand("/multi run echo a")
+	if cmd != nil {
+		t.Fatalf("expected no tea.Cmd from /multi before confirmation, got %T", cmd)
+	}
+	if len(m.multiPending) != 1 {
+		t.Fatalf("multiPending length = %d, want 1", len(m.multiPending))
+	}
+	if m.multiPending[0].Prompt != "run echo a" {
+		t.Fatalf("multiPending[0].Prompt = %q, want %q", m.multiPending[0].Prompt, "run echo a")
+	}
+	if !strings.Contains(m.status, "/multi-run") {
+		t.Fatalf("status = %q, want /multi-run hint", m.status)
+	}
+	if m.multiRunning {
+		t.Fatal("expected multiRunning to remain false until /multi-run")
 	}
 }

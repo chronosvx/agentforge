@@ -68,8 +68,6 @@ func run() error {
 		return err
 	}
 
-	maybeCheckUpdate()
-
 	if len(args) > 0 {
 		switch args[0] {
 		case "export":
@@ -161,6 +159,8 @@ func run() error {
 	if headless {
 		return runHeadless(cl, cfg, prompt, siemLog)
 	}
+
+	maybeCheckUpdate()
 
 	model := ui.New(cfg, cl, store, func(event string, fields map[string]any) {
 		audit(auditLog, event, fields)
@@ -368,19 +368,18 @@ func waitForHeadlessResult(ctx context.Context, events <-chan client.Event, chan
 			if ev.Operation == "done" {
 				return content, nil
 			}
-			if content != "" {
-				if !idle.Stop() {
-					select {
-					case <-idle.C:
-					default:
-					}
+			if !idle.Stop() {
+				select {
+				case <-idle.C:
+				default:
 				}
-				idle.Reset(idleTimeout)
 			}
+			idle.Reset(idleTimeout)
 		case <-idle.C:
 			if content != "" {
 				return content, nil
 			}
+			return "", fmt.Errorf("headless: timed out waiting for result on %s", channelID)
 		}
 	}
 }
@@ -780,6 +779,9 @@ func runAgent(args []string) error {
 		TestCmd:     *testCmd,
 	})
 	if err != nil {
+		if res != nil && !res.TestOK && (*doCommit || *doPush || *doPR) {
+			return fmt.Errorf("agent: tests failed; refusing to commit")
+		}
 		return err
 	}
 
@@ -803,6 +805,10 @@ func runAgent(args []string) error {
 		fmt.Println("Diff: (none)")
 	}
 
+	if !res.TestOK && (*doCommit || *doPush || *doPR) {
+		return fmt.Errorf("agent: tests failed; refusing to commit")
+	}
+
 	if *doCommit {
 		cfg := gitflow.Config{
 			WorkDir:   *workdir,
@@ -815,10 +821,13 @@ func runAgent(args []string) error {
 		if err := gitflow.EnsureBranch(ctx, cfg); err != nil {
 			return fmt.Errorf("agent: ensure branch: %w", err)
 		}
-		actualBranch := *branch
-		if actualBranch == "" {
-			actualBranch = currentGitBranch(*workdir)
+		if cfg.Branch == "" {
+			cfg.Branch = currentGitBranch(*workdir)
+			if cfg.Branch == "" {
+				return errors.New("agent: unable to determine current branch after ensure branch")
+			}
 		}
+		actualBranch := cfg.Branch
 		sha, err := gitflow.Commit(ctx, cfg)
 		if err != nil {
 			if strings.Contains(err.Error(), "nothing to commit") || strings.Contains(err.Error(), "no changes added") {
@@ -906,15 +915,15 @@ func runMultiAgent(args []string) error {
 	defer stop()
 
 	results, err := runner.Run(ctx, tasks, nil)
-	if err != nil {
-		return err
-	}
 	for _, r := range results {
 		if r.Err != nil {
 			fmt.Printf("%s: ERROR %v\n", r.TaskID, r.Err)
 		} else {
 			fmt.Printf("%s: %s\n", r.TaskID, r.Output)
 		}
+	}
+	if err != nil {
+		return err
 	}
 	return nil
 }

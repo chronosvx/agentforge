@@ -2,6 +2,8 @@ package agentflow
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -88,5 +90,55 @@ func TestRunnerRejectWithoutApprover(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "rejected") {
 		t.Fatalf("expected rejection error, got %v", err)
+	}
+}
+
+func TestSafePathRejectsGitPaths(t *testing.T) {
+	r := &Runner{}
+	_, err := r.executeAction(context.Background(), agent.Action{
+		Type:    agent.ActionTypeEditFile,
+		Path:    ".git/config",
+		Content: "pwned",
+	}, t.TempDir(), 0)
+	if err == nil || !strings.Contains(err.Error(), ".git") {
+		t.Fatalf("expected .git path rejection, got %v", err)
+	}
+}
+
+func TestSafePathRejectsSymlinkEscape(t *testing.T) {
+	work := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(work, "link")); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	r := &Runner{}
+	_, err := r.executeAction(context.Background(), agent.Action{
+		Type:    agent.ActionTypeEditFile,
+		Path:    "link/pwned",
+		Content: "pwned",
+	}, work, 0)
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink escape rejection, got %v", err)
+	}
+}
+
+func TestRunnerTestFailureReturnsError(t *testing.T) {
+	r := NewRunner(NewStaticPlanner(), nil)
+	dir := t.TempDir()
+	res, err := r.Run(context.Background(), Request{
+		Prompt:      "run echo ok",
+		WorkDir:     dir,
+		AutoApprove: true,
+		TestCmd:     "false",
+	})
+	if err == nil || !strings.Contains(err.Error(), "tests failed") {
+		t.Fatalf("expected tests failed error, got %v", err)
+	}
+	if res == nil {
+		t.Fatal("expected a result even when tests fail")
+	}
+	if res.TestOK {
+		t.Fatal("expected TestOK to be false")
 	}
 }

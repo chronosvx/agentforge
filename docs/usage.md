@@ -220,6 +220,67 @@ agentforge --headless --provider deepseek --provider-key sk-xxx --model deepseek
 - 可通过 `--user alice --roles admin,member` 模拟企业用户身份；该身份会写入 SIEM 事件。
 - 收到 `SIGINT` / `SIGTERM` 时会取消等待并退出。
 
+## Agent 主流程 / 多 Agent
+
+Agent 主流程 Demo：自然语言需求 → 计划 → 执行 → Diff → 测试 → 提交/回滚。
+
+### CLI：`agentforge agent`
+
+```bash
+# 静态规划器：仅支持 run/edit/test 指令
+agentforge agent --prompt "run go test ./..." --yes
+
+# 仓库感知 + 自然语言：必须使用 LLM 规划器（需要 API Key）
+agentforge agent --prompt "帮我看看这个项目怎么跑" --repo --planner llm --provider deepseek --provider-key sk-xxx --yes
+
+# 自动提交 / 推送 / 创建 PR
+agentforge agent --prompt "edit README.md hello" --yes --commit --push --pr --pr-title "docs: update readme"
+```
+
+`agentforge agent` 常用参数：
+
+| 参数 | 说明 |
+|---|---|
+| `--prompt <text>` | 自然语言需求（必填） |
+| `--planner static\|llm` | 规划器：`static` 只支持 `run` / `edit` / `test`；`llm` 需要 `--provider` |
+| `--repo` | 扫描当前 Git 仓库并添加上下文 |
+| `--workdir <dir>` | 工作目录，默认 `.` |
+| `--yes` | 自动批准所有 Agent 动作 |
+| `--test <cmd>` | 测试命令，默认 `go test ./...`；传空字符串可禁用测试 |
+| `--timeout <dur>` | 单条命令超时，默认 `5m` |
+| `--commit` | 成功后自动创建分支并提交 |
+| `--push` | 提交后推送到 origin |
+| `--pr` | 提交后创建 PR（需要 `gh` CLI） |
+| `--pr-title <title>` | PR 标题 |
+| `--pr-body <body>` | PR 描述 |
+| `--provider <name>` | LLM 厂商（`--planner llm` 必填） |
+| `--provider-key <key>` | LLM API Key（`--planner llm` 必填） |
+| `--model <model>` | LLM 模型（可选） |
+| `--base-url <url>` | OpenAI 兼容 Base URL（可选） |
+
+> ⚠️ **安全警告**：`--yes` 会自动批准所有动作。与 `--commit`、`--push`、`--pr` 一起使用时，会在没有逐条确认的情况下创建提交、推送到远端并创建 PR。请只在可信仓库或 CI 中使用，并确保工作区已备份或可回滚。
+
+### CLI：`agentforge multiagent`
+
+```bash
+agentforge multiagent --tasks "run echo a,run echo b,run echo c" --yes
+```
+
+`--tasks` 使用逗号分隔多个任务提示词；`--workdir`、`--yes`、`--test`、`--timeout` 等参数与 `agent` 子命令类似。
+
+### TUI：`/multi` 与 `/agents`
+
+`/multi` 支持逗号分隔的多个提示词，也支持 JSON 数组来声明任务依赖。输入 `/multi` 后会先准备好任务并打开面板，再输入 `/multi-run` 才会真正开始执行：
+
+```text
+/multi run echo a,run echo b,run echo c
+
+/multi [{"id":"a","prompt":"run echo a"},{"id":"b","prompt":"run echo b","deps":["a"]}]
+/multi-run
+```
+
+`/agents` 打开/关闭多 Agent 面板，面板会展示子任务依赖树、状态与输出。
+
 ## 开放 API / Webhook 服务
 
 `agentforge-api` 提供轻量 HTTP API，让外部程序、CI 或 SDK 可以创建会话、发送 prompt、查看结果，并通过 Webhook 接收异步事件通知。服务复用 `internal/session`、`internal/provider`、`internal/dshapi` 等后端能力，不修改 TUI 核心逻辑。
@@ -718,26 +779,37 @@ DSH_TELEMETRY=1 agentforge
 | `/find <关键词>` | 全文搜索历史消息 |
 | `/right` | 右侧 Overview 面板 |
 | `/split` | 双会话并排视图 |
+| `/model [模型]` | 查看当前模型；Provider 直连时可切换模型 |
+| `/new` | 新建普通会话 |
 | `/export` | 导出当前会话为 Markdown/JSON |
 | `/rename <标题>` | 重命名当前本地会话 |
 | `/delete` | 删除当前本地会话 |
 | `/skill-install <本地目录\|git URL>` | 从本地目录或 git 仓库安装/更新 Skill |
 | `/skill-sync <manifest-url>` | 从 JSON manifest 同步远端 Skill 仓库清单 |
+| `/agent` | 打开/关闭 Agent 执行/审批面板；`/agent new` 新建会话 |
+| `/agent-new` | 新建 Agent 执行会话 |
+| `/agent-reset` | 重置 Agent 执行会话 |
+| `/checkpoint <名称>` | 保存当前会话 Checkpoint 到时间线 |
+| `/rewind <ID\|名称>` | 回滚到指定 Checkpoint 或时间线快照 |
+| `/timeline` | 查看 Checkpoint 时间线 |
+| `/fork <标签>` | 从当前会话分叉一个新的时间线分支 |
+| `/mcp <url>` | 连接 MCP Server 并列出工具 |
+| `/mcp-call <工具> <json>` | 调用 MCP 工具 |
+| `/mcp-approve` | 批准当前挂起的 MCP 调用 |
+| `/mcp-cancel` | 取消当前挂起的 MCP 调用 |
+| `/mcp-auto <工具>` | 设置 MCP 工具为自动执行 |
+| `/mcp-confirm <工具>` | 设置 MCP 工具为每次确认 |
+| `/mcp-deny <工具>` | 禁止 MCP 工具 |
+| `/mcp-audit` | 查看最近的 MCP 调用审计 |
+| `/remember <键> <值>` | 保存一条项目记忆 |
+| `/forget <键>` | 删除一条项目记忆 |
+| `/memory [查询]` | 列出或搜索项目记忆 |
+| `/exec [local\|docker\|ssh] [options] -- <命令>` | 打开沙箱/远程执行面板并运行命令 |
+| `/multi <提示词1,提示词2,...>` 或 `/multi [{"id":"a","prompt":"...","deps":["b"]}]` | 准备多 Agent 任务（JSON 形式支持依赖）并打开面板；用 `/multi-run` 执行 |
+| `/multi-run` | 执行 `/multi` 已准备的多 Agent 任务 |
+| `/agents` | 打开/关闭多 Agent 面板 |
 | `/help` | 帮助 |
 | `/close` | 关闭当前 Channel |
-| `/exec [local\|docker\|ssh] [options] -- <命令>` | 打开沙箱/远程执行面板并运行命令 |
-
-### 即将支持：P0 基础包命令
-
-以下命令对应的后端基础包已经实现，但 UI 尚未接入，因此当前版本输入后会提示未知命令；它们将在后续版本中启用：
-
-| 命令 | 作用 |
-|---|---|
-| `/agent` | 打开 Agent 执行/审批面板（计划、审批、执行、测试、Diff 评审、回滚） |
-| `/checkpoint` | 为当前会话创建上下文 Checkpoint（基于 `internal/contextx`） |
-| `/rewind` | 回滚到指定 Checkpoint（基于 `internal/contextx`） |
-| `/mcp` | 打开 MCP 工具/服务器管理面板（基于 `internal/mcp`） |
-| `/mcp-call <工具名> [参数]` | 调用 MCP 工具（基于 `internal/mcp`） |
 
 ### 插件命令
 

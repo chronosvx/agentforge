@@ -9,12 +9,15 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/chronosvx/agentforge/internal/gitflow"
 	"github.com/chronosvx/agentforge/internal/repomode"
 	"github.com/chronosvx/agentforge/internal/session"
 )
@@ -434,5 +437,83 @@ func TestRunAgentUnknownPlanner(t *testing.T) {
 	err := runAgent([]string{"--planner", "bogus", "--prompt", "hello"})
 	if err == nil || !strings.Contains(err.Error(), "unknown planner") {
 		t.Fatalf("runAgent unknown planner error = %v, want unknown planner", err)
+	}
+}
+
+func TestGitflowCommitCleanTreeReportsNothingToCommit(t *testing.T) {
+	dir := initCleanGitRepo(t)
+
+	_, err := gitflow.Commit(context.Background(), gitflow.Config{WorkDir: dir, CommitMsg: "noop"})
+	if err == nil {
+		t.Fatal("Commit() on a clean tree succeeded, want an error")
+	}
+	if !strings.Contains(err.Error(), "nothing to commit") && !strings.Contains(err.Error(), "no changes added") {
+		t.Fatalf("Commit() clean-tree error = %v, want it to include clean-tree output", err)
+	}
+}
+
+func TestRunAgentRefusesCommitWhenTestsFail(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses sh -c")
+	}
+	dir := t.TempDir()
+	err := runAgent([]string{
+		"--yes",
+		"--workdir", dir,
+		"--commit",
+		"--test", "exit 1",
+		"--prompt", "edit file.txt hello",
+	})
+	if err == nil || !strings.Contains(err.Error(), "tests failed; refusing to commit") {
+		t.Fatalf("runAgent error = %v, want tests-failed refusal", err)
+	}
+}
+
+func TestRunMultiAgentPrintsFailuresBeforeAggregateError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses sh -c")
+	}
+	dir := t.TempDir()
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() error: %v", err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = old }()
+	runErr := runMultiAgent([]string{"--yes", "--workdir", dir, "--tasks", "run false"})
+	_ = w.Close()
+	out, _ := io.ReadAll(r)
+
+	if runErr == nil {
+		t.Fatal("runMultiAgent() error = nil, want aggregate error")
+	}
+	if !strings.Contains(string(out), "task-0: ERROR") {
+		t.Fatalf("runMultiAgent output does not include per-task failure before aggregate error:\n%s", out)
+	}
+}
+
+func initCleanGitRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	runTestGit(t, dir, "init")
+	runTestGit(t, dir, "config", "user.name", "Test User")
+	runTestGit(t, dir, "config", "user.email", "test@example.com")
+	if err := os.WriteFile(filepath.Join(dir, "initial.txt"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write initial file: %v", err)
+	}
+	runTestGit(t, dir, "add", ".")
+	runTestGit(t, dir, "commit", "-m", "initial commit")
+	return dir
+}
+
+func runTestGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 	}
 }

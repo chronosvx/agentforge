@@ -106,6 +106,8 @@ UI 体验细节：
 | `/find <关键词>` | 全文搜索历史消息 |
 | `/right` | 打开/关闭右侧常驻 Overview 面板 |
 | `/split` | 打开/关闭双会话并排视图 |
+| `/model [模型]` | 查看当前模型；Provider 直连时可切换模型 |
+| `/new` | 新建一个普通会话 |
 | `/export` | 导出当前会话为 Markdown/JSON |
 | `/rename <标题>` | 重命名当前本地会话 |
 | `/delete` | 删除当前本地会话 |
@@ -113,12 +115,15 @@ UI 体验细节：
 | `/skill-sync <manifest-url>` | 从 JSON manifest 同步远端 Skill 仓库清单 |
 | `/agent` | 打开/关闭 Agent 执行/审批面板；`/agent new` 新建会话 |
 | `/agent-new` | 新建 Agent 执行会话 |
+| `/agent-reset` | 重置 Agent 执行会话 |
 | `/checkpoint <名称>` | 保存当前会话 Checkpoint 到时间线 |
 | `/rewind <ID\|名称>` | 回滚到指定 Checkpoint 或时间线快照 |
 | `/timeline` | 查看 Checkpoint 时间线 |
 | `/fork <标签>` | 从当前会话分叉一个新的时间线分支 |
 | `/mcp <url>` | 连接 MCP Server 并列出工具 |
 | `/mcp-call <工具> <json>` | 调用 MCP 工具 |
+| `/mcp-approve` | 批准当前挂起的 MCP 调用 |
+| `/mcp-cancel` | 取消当前挂起的 MCP 调用 |
 | `/mcp-auto <工具>` | 设置 MCP 工具为自动执行 |
 | `/mcp-confirm <工具>` | 设置 MCP 工具为每次确认 |
 | `/mcp-deny <工具>` | 禁止 MCP 工具 |
@@ -127,7 +132,8 @@ UI 体验细节：
 | `/forget <键>` | 删除一条项目记忆 |
 | `/memory [查询]` | 列出或搜索项目记忆 |
 | `/exec [命令]` | 打开执行面板，或直接执行命令 |
-| `/multi <提示词1,提示词2,...>` | 启动多 Agent 并行执行并打开面板 |
+| `/multi <提示词1,提示词2,...>` 或 `/multi [{"id":"a","prompt":"...","deps":["b"]}]` | 准备多 Agent 任务（JSON 形式支持依赖）并打开面板；用 `/multi-run` 执行 |
+| `/multi-run` | 执行 `/multi` 已准备的多 Agent 任务 |
 | `/agents` | 打开/关闭多 Agent 面板 |
 | `/help` | 显示可用命令 |
 | `/close` | 关闭当前 Channel |
@@ -197,12 +203,14 @@ agentforge --user alice --roles member exec --local --cmd "echo hi"
 
 Agent 主流程 Demo：自然语言需求 → 计划 → 执行 → Diff → 测试 → 提交/回滚。
 
+> 静态规划器只支持以 `run` / `edit` / `test` 开头的确定性指令；仓库感知或自然语言需求请使用 `--planner llm`（需要 API Key）。
+
 ```bash
-# 静态规划器：run/edit/test 指令
+# 静态规划器：仅支持 run/edit/test 指令
 agentforge agent --prompt "run go test ./..." --yes
 
-# 仓库感知：扫描当前仓库后规划
-agentforge agent --prompt "帮我看看这个项目怎么跑" --repo --yes
+# 仓库感知 + 自然语言：必须使用 LLM 规划器（需要 API Key）
+agentforge agent --prompt "帮我看看这个项目怎么跑" --repo --planner llm --provider deepseek --provider-key sk-xxx --yes
 
 # 使用 LLM 规划器（需要 API Key）
 agentforge agent --prompt "帮我加一个 --version 参数" --planner llm --provider deepseek --provider-key sk-xxx --repo --yes
@@ -219,10 +227,13 @@ AGENTFORGE_PROVIDER_KEY=sk-xxx \
 ./scripts/acceptance-llm.sh
 ```
 
+> ⚠️ **安全警告**：`--yes` 会自动批准所有 Agent 动作。与 `--commit`、`--push`、`--pr` 一起使用时，会在没有逐条确认的情况下创建分支/提交、推送到远端并创建 PR。请只在可信仓库或 CI 中使用，并确保工作区已备份或可回滚。
+
 TUI 多 Agent 依赖图/子任务树：
 
 ```text
 /multi [{"id":"a","prompt":"run echo a"},{"id":"b","prompt":"run echo b","deps":["a"]}]
+/multi-run
 /agents
 ```
 

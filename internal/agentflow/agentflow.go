@@ -177,6 +177,10 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 		}
 	}
 
+	if req.TestCmd != "" && !result.TestOK {
+		return result, fmt.Errorf("agentflow: tests failed")
+	}
+
 	return result, nil
 }
 
@@ -247,7 +251,108 @@ func safePath(workDir, p string) (string, error) {
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("agentflow: path %q escapes workdir", p)
 	}
+
+	// Reject any path component that is a .git directory, regardless of case.
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if strings.EqualFold(part, ".git") {
+			return "", fmt.Errorf("agentflow: path %q targets .git", p)
+		}
+	}
+
+	absWork, err := filepath.Abs(workDir)
+	if err != nil {
+		return "", err
+	}
+	absFull, err := filepath.Abs(full)
+	if err != nil {
+		return "", err
+	}
+
+	resolvedWork := absWork
+	if resolved, err := filepath.EvalSymlinks(absWork); err == nil {
+		resolvedWork = resolved
+	}
+
+	resolvedParent, err := resolveExistingParent(absFull)
+	if err != nil {
+		return "", fmt.Errorf("agentflow: resolve path %q: %w", p, err)
+	}
+	resolved := filepath.Join(resolvedParent, filepath.Base(absFull))
+
+	// If the final path already exists, resolve it too so an existing symlink
+	// cannot redirect the write outside the workdir.
+	if fi, statErr := os.Lstat(absFull); statErr == nil {
+		if resolvedFinal, evalErr := filepath.EvalSymlinks(absFull); evalErr == nil {
+			resolved = resolvedFinal
+		} else if fi.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("agentflow: path %q escapes workdir via symlink", p)
+		}
+	}
+
+	if !pathWithin(resolvedWork, resolved) {
+		return "", fmt.Errorf("agentflow: path %q escapes workdir via symlink", p)
+	}
+
+	// Also reject .git components introduced through symlinks.
+	if resolvedRel, err := filepath.Rel(resolvedWork, resolved); err == nil {
+		for _, part := range strings.Split(resolvedRel, string(filepath.Separator)) {
+			if strings.EqualFold(part, ".git") {
+				return "", fmt.Errorf("agentflow: path %q targets .git", p)
+			}
+		}
+	}
+
 	return full, nil
+}
+
+// resolveExistingParent resolves the deepest existing ancestor of path and
+// re-appends any not-yet-existing suffix. This lets safePath catch symlinked
+// directories even when the final file or some intermediate directory does not
+// exist yet.
+func resolveExistingParent(path string) (string, error) {
+	dir := filepath.Dir(path)
+	var missing []string
+	for {
+		resolved, err := filepath.EvalSymlinks(dir)
+		if err == nil {
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return resolved, nil
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		// If dir itself is a symlink whose target is missing, resolve the link
+		// target and keep walking from there so dangling symlinks cannot hide an
+		// escape.
+		if fi, lerr := os.Lstat(dir); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+			target, rerr := os.Readlink(dir)
+			if rerr != nil {
+				return "", rerr
+			}
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(filepath.Dir(dir), target)
+			}
+			dir = target
+			continue
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", err
+		}
+		missing = append(missing, filepath.Base(dir))
+		dir = parent
+	}
+}
+
+// pathWithin reports whether child is equal to root or located under it.
+func pathWithin(root, child string) bool {
+	rel, err := filepath.Rel(root, child)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 // applyDiff 使用 git apply 应用 diff 内容。

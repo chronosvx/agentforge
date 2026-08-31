@@ -73,6 +73,44 @@ UI details:
 - The status bar uses symbol prefixes such as `•` / `⚠` / `✖`, not colors alone.
 - On narrow screens (width < 80), the right Overview panel and split view are hidden automatically.
 
+## Agent / Multi-Agent
+
+Agent main flow demo: natural-language request → plan → execute → diff → test → commit/rollback.
+
+> The static planner only handles deterministic instructions that start with `run` / `edit` / `test`. For repo-aware or natural-language requests, use `--planner llm` (requires an API key).
+
+```bash
+# Static planner: run/edit/test instructions only
+agentforge agent --prompt "run go test ./..." --yes
+
+# Repo-aware natural language: must use the LLM planner (API key required)
+agentforge agent --prompt "How do I run this project?" --repo --planner llm --provider deepseek --provider-key sk-xxx --yes
+
+# LLM planner (API key required)
+agentforge agent --prompt "Add a --version flag" --planner llm --provider deepseek --provider-key sk-xxx --repo --yes
+
+# Auto commit / push / create PR
+agentforge agent --prompt "edit README.md hello" --yes --commit --push --pr --pr-title "docs: update readme"
+
+# Run multiple agent tasks in parallel
+agentforge multiagent --tasks "run echo a,run echo b,run echo c" --yes
+
+# Real LLM acceptance script (API key required)
+AGENTFORGE_PROVIDER=deepseek \
+AGENTFORGE_PROVIDER_KEY=sk-xxx \
+./scripts/acceptance-llm.sh
+```
+
+> ⚠️ **Safety warning**: `--yes` auto-approves all agent actions. Combining it with `--commit`, `--push`, or `--pr` can create branches/commits, push to remotes, and open PRs without per-action confirmation. Only use it in trusted repositories or CI, and make sure the workspace is backed up or recoverable.
+
+TUI multi-agent dependency tree / subtask tree:
+
+```text
+/multi [{"id":"a","prompt":"run echo a"},{"id":"b","prompt":"run echo b","deps":["a"]}]
+/multi-run
+/agents
+```
+
 ## Built-in Commands
 
 Type a command in the input box and press Enter (it is not sent to the agent):
@@ -91,11 +129,35 @@ Type a command in the input box and press Enter (it is not sent to the agent):
 | `/find <keyword>` | Full-text search history messages |
 | `/right` | Toggle the right Overview panel |
 | `/split` | Toggle the side-by-side dual-session view |
+| `/model [model]` | Show the current model; switch models in provider direct mode |
+| `/new` | Create a new regular session |
 | `/export` | Export the current session as Markdown/JSON |
 | `/rename <title>` | Rename the current local session |
 | `/delete` | Delete the current local session |
 | `/skill-install <local-dir\|git-url>` | Install/update a Skill from a local directory or git repository |
 | `/skill-sync <manifest-url>` | Sync remote Skill repository list from a JSON manifest |
+| `/agent` | Toggle the Agent execution/approval panel; `/agent new` creates a new session |
+| `/agent-new` | Create a new Agent execution session |
+| `/agent-reset` | Reset the Agent execution session |
+| `/checkpoint <name>` | Save the current session checkpoint to the timeline |
+| `/rewind <ID\|name>` | Rewind to a checkpoint or timeline snapshot |
+| `/timeline` | View the checkpoint timeline |
+| `/fork <label>` | Fork a new timeline branch from the current session |
+| `/mcp <url>` | Connect to an MCP server and list tools |
+| `/mcp-call <tool> <json>` | Call an MCP tool |
+| `/mcp-approve` | Approve the current pending MCP call |
+| `/mcp-cancel` | Cancel the current pending MCP call |
+| `/mcp-auto <tool>` | Set an MCP tool to auto-execute |
+| `/mcp-confirm <tool>` | Set an MCP tool to require confirmation |
+| `/mcp-deny <tool>` | Deny an MCP tool |
+| `/mcp-audit` | View recent MCP audit entries |
+| `/remember <key> <value>` | Save a project memory entry |
+| `/forget <key>` | Delete a project memory entry |
+| `/memory [query]` | List or search project memory |
+| `/exec [command]` | Open the execution panel, or run a command directly |
+| `/multi <prompt1,prompt2,...>` or `/multi [{"id":"a","prompt":"...","deps":["b"]}]` | Prepare multi-agent tasks (JSON form supports dependencies) and open the panel; use `/multi-run` to execute |
+| `/multi-run` | Execute the multi-agent tasks prepared by `/multi` |
+| `/agents` | Toggle the multi-agent panel |
 | `/help` | Show available commands |
 | `/close` | Close the current Channel |
 

@@ -99,9 +99,9 @@ var commandPaletteCommands = []string{
 	"/plugin", "/search", "/find", "/right", "/split", "/model", "/new", "/rename", "/export",
 	"/delete", "/close", "/skill-install", "/skill-sync", "/help",
 	"/agent", "/agent-new", "/agent-reset", "/checkpoint", "/rewind", "/mcp", "/mcp-call",
-	"/mcp-auto", "/mcp-confirm", "/mcp-deny", "/mcp-audit", "/timeline", "/fork",
-	"/remember", "/forget", "/memory",
-	"/exec", "/multi", "/agents",
+	"/mcp-approve", "/mcp-cancel", "/mcp-auto", "/mcp-confirm", "/mcp-deny", "/mcp-audit",
+	"/timeline", "/fork", "/remember", "/forget", "/memory",
+	"/exec", "/multi", "/multi-run", "/agents",
 }
 
 // Model 是 Bubble Tea 的根模型。
@@ -149,19 +149,22 @@ type Model struct {
 	plugins       []plugin.Plugin
 	pluginCursor  int
 
-	agentSession *agent.AgentSession
-	agentCursor  int
-	mcpClient    *mcp.Client
-	mcpTools     []mcp.Tool
-	mcpCursor    int
-	mcpPolicy    *mcpperm.Policy
-	mcpAudit     *mcpperm.AuditLog
-	window       *contextx.Window
-	checkpoints  *contextx.CheckpointStore
-	timeline     *timeline.Timeline
-	memoryStore  *memory.MemoryStore
+	agentSession   *agent.AgentSession
+	agentCursor    int
+	mcpClient      *mcp.Client
+	mcpTools       []mcp.Tool
+	mcpCursor      int
+	mcpPolicy      *mcpperm.Policy
+	mcpAudit       *mcpperm.AuditLog
+	pendingMCPName string
+	pendingMCPArgs map[string]any
+	window         *contextx.Window
+	checkpoints    *contextx.CheckpointStore
+	timeline       *timeline.Timeline
+	memoryStore    *memory.MemoryStore
 
 	multiTasks   []multiagent.Task
+	multiPending []multiagent.Task
 	multiResults []multiagent.Result
 	multiStates  map[string]string
 	multiOutputs map[string]string
@@ -1724,6 +1727,21 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 			break
 		}
 		return m.mcpCallCmd(tool, args)
+	case "/mcp-approve":
+		if m.pendingMCPName == "" {
+			m.status = "no pending mcp call to approve"
+			break
+		}
+		name := m.pendingMCPName
+		args := m.pendingMCPArgs
+		m.pendingMCPName = ""
+		m.pendingMCPArgs = nil
+		m.status = "mcp call approved: " + name
+		return m.executeMCPCall(name, args)
+	case "/mcp-cancel":
+		m.pendingMCPName = ""
+		m.pendingMCPArgs = nil
+		m.status = "mcp call cancelled"
 	case "/mcp-auto":
 		tool := strings.TrimSpace(strings.TrimPrefix(cmd, "/mcp-auto"))
 		if tool == "" {
@@ -1888,7 +1906,10 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 				m.status = "multi json error: " + err.Error()
 				break
 			}
-			return m.startMultiAgent(tasks)
+			m.multiPending = tasks
+			m.panel = panelMulti
+			m.status = "multi-agent tasks ready: /multi-run to execute"
+			break
 		}
 		prompts := splitCommaList(rest)
 		if len(prompts) == 0 {
@@ -1899,6 +1920,16 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 		for i, p := range prompts {
 			tasks = append(tasks, multiagent.Task{ID: fmt.Sprintf("task-%d", i), Prompt: p, WorkDir: m.workspaceDir()})
 		}
+		m.multiPending = tasks
+		m.panel = panelMulti
+		m.status = "multi-agent tasks ready: /multi-run to execute"
+	case "/multi-run":
+		if len(m.multiPending) == 0 {
+			m.status = "multi-agent: no pending tasks"
+			break
+		}
+		tasks := m.multiPending
+		m.multiPending = nil
 		return m.startMultiAgent(tasks)
 	case "/agents":
 		if m.panel == panelMulti {
@@ -2189,7 +2220,7 @@ func (m *Model) mcpConnectCmd(url string) tea.Cmd {
 	}
 }
 
-// mcpCallCmd 异步调用已连接的 MCP 工具。
+// mcpCallCmd 异步调用已连接的 MCP 工具；需要确认时挂起等待 /mcp-approve。
 func (m *Model) mcpCallCmd(name string, args map[string]any) tea.Cmd {
 	if m.mcpPolicy == nil {
 		m.mcpPolicy = mcpperm.NewPolicy(mcpperm.ModeConfirm)
@@ -2206,12 +2237,26 @@ func (m *Model) mcpCallCmd(name string, args map[string]any) tea.Cmd {
 		}
 	}
 
-	requiresApproval := decision.RequiresApproval
+	if decision.RequiresApproval {
+		m.pendingMCPName = name
+		m.pendingMCPArgs = args
+		m.status = "mcp call requires approval: /mcp-approve or /mcp-cancel"
+		return nil
+	}
+
+	return m.executeMCPCall(name, args)
+}
+
+// executeMCPCall 实际执行 MCP CallTool 并返回 mcpCallMsg。
+func (m *Model) executeMCPCall(name string, args map[string]any) tea.Cmd {
 	return func() tea.Msg {
+		if m.mcpClient == nil {
+			return mcpCallMsg{name: name, err: errors.New("mcp not connected")}
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		result, err := m.mcpClient.CallTool(ctx, name, args)
-		return mcpCallMsg{name: name, result: result, err: err, requiresApproval: requiresApproval}
+		return mcpCallMsg{name: name, result: result, err: err}
 	}
 }
 
@@ -2716,23 +2761,29 @@ func (m *Model) renderAgentPanel() string {
 func (m *Model) renderMultiAgentPanel() string {
 	var b strings.Builder
 	b.WriteString("Multi-Agent\n")
-	if len(m.multiTasks) == 0 {
+
+	pendingView := !m.multiRunning && len(m.multiPending) > 0
+	tasks := m.multiTasks
+	if pendingView {
+		tasks = m.multiPending
+	}
+	if len(tasks) == 0 {
 		b.WriteString("Use /multi <prompt1,prompt2,...> to start.\n")
 		return b.String()
 	}
 
-	byID := make(map[string]multiagent.Task, len(m.multiTasks))
-	children := make(map[string][]string, len(m.multiTasks))
-	hasParent := make(map[string]bool, len(m.multiTasks))
-	for _, t := range m.multiTasks {
+	byID := make(map[string]multiagent.Task, len(tasks))
+	children := make(map[string][]string, len(tasks))
+	hasParent := make(map[string]bool, len(tasks))
+	for _, t := range tasks {
 		byID[t.ID] = t
 		for _, dep := range t.Dependencies {
 			children[dep] = append(children[dep], t.ID)
 			hasParent[t.ID] = true
 		}
 	}
-	roots := make([]string, 0, len(m.multiTasks))
-	for _, t := range m.multiTasks {
+	roots := make([]string, 0, len(tasks))
+	for _, t := range tasks {
 		if !hasParent[t.ID] {
 			roots = append(roots, t.ID)
 		}
@@ -2745,11 +2796,13 @@ func (m *Model) renderMultiAgentPanel() string {
 			return
 		}
 		state := "pending"
-		if s, ok := m.multiStates[id]; ok {
-			state = s
+		if !pendingView {
+			if s, ok := m.multiStates[id]; ok {
+				state = s
+			}
 		}
 		idx := -1
-		for i, tt := range m.multiTasks {
+		for i, tt := range tasks {
 			if tt.ID == id {
 				idx = i
 				break
@@ -2761,8 +2814,10 @@ func (m *Model) renderMultiAgentPanel() string {
 		}
 		indent := strings.Repeat("  ", depth)
 		b.WriteString(fmt.Sprintf("%s%s%s [%s] %s\n", indent, marker, id, state, truncateText(t.Prompt, 40)))
-		if out, ok := m.multiOutputs[id]; ok && out != "" {
-			b.WriteString(indent + "    " + truncateText(out, 80) + "\n")
+		if !pendingView {
+			if out, ok := m.multiOutputs[id]; ok && out != "" {
+				b.WriteString(indent + "    " + truncateText(out, 80) + "\n")
+			}
 		}
 		for _, child := range children[id] {
 			writeNode(child, depth+1)
@@ -2770,7 +2825,7 @@ func (m *Model) renderMultiAgentPanel() string {
 	}
 
 	if len(roots) > 0 {
-		visited := make(map[string]bool, len(m.multiTasks))
+		visited := make(map[string]bool, len(tasks))
 		var renderTree func(id string, depth int)
 		renderTree = func(id string, depth int) {
 			if visited[id] {
@@ -2786,30 +2841,36 @@ func (m *Model) renderMultiAgentPanel() string {
 			renderTree(id, 0)
 		}
 		// 处理环或孤儿节点，避免漏显。
-		for _, t := range m.multiTasks {
+		for _, t := range tasks {
 			if !visited[t.ID] {
 				renderTree(t.ID, 0)
 			}
 		}
 	} else {
-		for i, t := range m.multiTasks {
+		for i, t := range tasks {
 			state := "pending"
-			if s, ok := m.multiStates[t.ID]; ok {
-				state = s
+			if !pendingView {
+				if s, ok := m.multiStates[t.ID]; ok {
+					state = s
+				}
 			}
 			marker := " "
 			if i == m.multiCursor {
 				marker = ">"
 			}
 			b.WriteString(fmt.Sprintf("%s%s [%s] %s\n", marker, t.ID, state, truncateText(t.Prompt, 40)))
-			if out, ok := m.multiOutputs[t.ID]; ok && out != "" {
-				b.WriteString("    " + truncateText(out, 80) + "\n")
+			if !pendingView {
+				if out, ok := m.multiOutputs[t.ID]; ok && out != "" {
+					b.WriteString("    " + truncateText(out, 80) + "\n")
+				}
 			}
 		}
 	}
 
 	if m.multiRunning {
 		b.WriteString("\nRunning...\n")
+	} else if len(m.multiPending) > 0 {
+		b.WriteString("\nPending... Use /multi-run to execute.\n")
 	} else if len(m.multiResults) > 0 {
 		b.WriteString(fmt.Sprintf("\nDone: %d tasks\n", len(m.multiResults)))
 	}
