@@ -81,3 +81,48 @@ func TestLLMPlannerPlanParsesTwoActions(t *testing.T) {
 		t.Fatalf("user message = %q, want original prompt", fp.chatReq.Messages[1].Content)
 	}
 }
+
+type retryLLMProvider struct {
+	responses []*provider.ChatResponse
+	calls     int
+}
+
+func (r *retryLLMProvider) Chat(_ context.Context, _ provider.ChatRequest) (*provider.ChatResponse, error) {
+	if r.calls >= len(r.responses) {
+		return &provider.ChatResponse{Content: `[]`}, nil
+	}
+	resp := r.responses[r.calls]
+	r.calls++
+	return resp, nil
+}
+
+func (r *retryLLMProvider) StreamChat(context.Context, provider.ChatRequest) (<-chan provider.StreamEvent, error) {
+	return nil, nil
+}
+
+func (r *retryLLMProvider) Name() string { return "fake" }
+
+func (r *retryLLMProvider) Model() string { return "fake-model" }
+
+func (r *retryLLMProvider) CostEstimator() *cost.Estimator { return nil }
+
+func TestLLMPlannerRetriesWhenNoFileMutation(t *testing.T) {
+	fp := &retryLLMProvider{
+		responses: []*provider.ChatResponse{
+			{Content: `[{"type":"run_command","command":"cat main.go","path":"","content":"","description":"Read main.go"}]`},
+			{Content: `[{"type":"edit_file","command":"","path":"main.go","content":"package main\n\nfunc main() {}\n","description":"Edit main.go"}]`},
+		},
+	}
+
+	p := NewLLMPlanner(fp, "test-model")
+	actions, err := p.Plan(context.Background(), "add a version flag to main.go", &Repo{WorkDir: "/tmp"})
+	if err != nil {
+		t.Fatalf("Plan error: %v", err)
+	}
+	if fp.calls != 2 {
+		t.Fatalf("provider calls = %d, want 2", fp.calls)
+	}
+	if len(actions) != 1 || actions[0].Type != agent.ActionTypeEditFile {
+		t.Fatalf("unexpected actions: %+v", actions)
+	}
+}

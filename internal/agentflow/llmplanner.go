@@ -39,6 +39,9 @@ type llmAction struct {
 }
 
 // Plan 调用 Provider 生成 JSON 动作数组，并转换为 []agent.Action。
+//
+// 如果用户请求看起来需要修改代码，但模型连续多次只返回只读命令，
+// Plan 会返回错误，避免“看起来成功但什么都没改”的假阳性。
 func (p *LLMPlanner) Plan(ctx context.Context, prompt string, _ *Repo) ([]agent.Action, error) {
 	if p == nil || p.Provider == nil {
 		return nil, fmt.Errorf("agentflow: llm planner provider is nil")
@@ -69,23 +72,48 @@ Example for adding a --version flag to main.go:
   {"type": "run_command", "command": "go build ./...", "path": "", "content": "", "description": "Verify the project builds"}
 ]`
 
-	resp, err := p.Provider.Chat(ctx, provider.ChatRequest{
-		Model: p.Model,
-		Messages: []provider.Message{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: prompt},
-		},
-		Stream: false,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("agentflow: llm plan chat: %w", err)
-	}
-	if resp == nil {
-		return nil, fmt.Errorf("agentflow: llm plan chat returned nil response")
+	messages := []provider.Message{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: prompt},
 	}
 
+	requireMutation := looksLikeChangeRequest(prompt)
+	const maxAttempts = 3
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		resp, err := p.Provider.Chat(ctx, provider.ChatRequest{
+			Model:    p.Model,
+			Messages: messages,
+			Stream:   false,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("agentflow: llm plan chat: %w", err)
+		}
+		if resp == nil {
+			return nil, fmt.Errorf("agentflow: llm plan chat returned nil response")
+		}
+
+		actions, parseErr := p.parseActions(resp.Content)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		if !requireMutation || hasFileMutation(actions) {
+			return actions, nil
+		}
+
+		// 追加纠正信息，要求模型必须输出文件修改动作。
+		messages = append(messages,
+			provider.Message{Role: "assistant", Content: resp.Content},
+			provider.Message{Role: "user", Content: "Your previous plan did not modify any files. The task requires code changes. Return ONLY a corrected JSON array that includes an edit_file or apply_diff action."},
+		)
+	}
+
+	return nil, fmt.Errorf("agentflow: llm planner did not produce file modification actions after %d attempts", maxAttempts)
+}
+
+// parseActions 解析模型返回的 JSON 动作数组。
+func (p *LLMPlanner) parseActions(content string) ([]agent.Action, error) {
 	var parsed []llmAction
-	if err := json.Unmarshal([]byte(resp.Content), &parsed); err != nil {
+	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
 		return nil, fmt.Errorf("agentflow: parse llm plan JSON: %w", err)
 	}
 
@@ -101,8 +129,33 @@ Example for adding a --version flag to main.go:
 	if p.MaxActions > 0 && len(actions) > p.MaxActions {
 		actions = actions[:p.MaxActions]
 	}
-
 	return actions, nil
+}
+
+// hasFileMutation 判断计划中是否包含会修改文件的动作。
+func hasFileMutation(actions []agent.Action) bool {
+	for _, a := range actions {
+		if a.Type == agent.ActionTypeEditFile || a.Type == agent.ActionTypeApplyDiff {
+			return true
+		}
+	}
+	return false
+}
+
+// looksLikeChangeRequest 粗略判断用户请求是否要求修改代码。
+func looksLikeChangeRequest(prompt string) bool {
+	text := strings.ToLower(prompt)
+	keywords := []string{
+		"add", "change", "modify", "implement", "write", "fix", "update",
+		"create", "refactor", "version", "feature", "添加", "修改", "实现",
+		"写入", "修复", "更新", "创建", "重构", "参数",
+	}
+	for _, k := range keywords {
+		if strings.Contains(text, k) {
+			return true
+		}
+	}
+	return false
 }
 
 // convertLLMAction 校验并转换一个模型返回的动作对象。
