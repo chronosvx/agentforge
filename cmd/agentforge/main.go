@@ -9,6 +9,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -24,6 +25,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbletea"
+	"github.com/chronosvx/agentforge/internal/agent"
+	"github.com/chronosvx/agentforge/internal/agentflow"
 	"github.com/chronosvx/agentforge/internal/client"
 	"github.com/chronosvx/agentforge/internal/config"
 	"github.com/chronosvx/agentforge/internal/dshapi"
@@ -74,6 +77,8 @@ func run() error {
 			return runOpen(args[1:])
 		case "exec":
 			return runExecWithIdentity(args[1:], user, roles)
+		case "agent":
+			return runAgent(args[1:])
 		}
 	}
 
@@ -562,6 +567,82 @@ func runExecWithIdentity(args []string, identityUser, identityRoles string) (ret
 			return fmt.Errorf("exec: command failed with exit code %d", res.ExitCode)
 		}
 		return fmt.Errorf("exec: %w", err)
+	}
+	return nil
+}
+
+// runAgent 实现 `agentforge agent` 子命令：Agent 主流程端到端 Demo。
+func runAgent(args []string) error {
+	fs := flag.NewFlagSet("agent", flag.ContinueOnError)
+	prompt := fs.String("prompt", "", "自然语言需求")
+	workdir := fs.String("workdir", ".", "工作目录")
+	autoApprove := fs.Bool("yes", false, "自动批准所有动作")
+	testCmd := fs.String("test", "go test ./...", "测试命令；传空字符串可禁用测试")
+	timeout := fs.Duration("timeout", 5*time.Minute, "单条命令超时")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if strings.TrimSpace(*prompt) == "" && fs.NArg() > 0 {
+		*prompt = strings.Join(fs.Args(), " ")
+	}
+	if strings.TrimSpace(*prompt) == "" {
+		return errors.New("agent: --prompt is required")
+	}
+
+	runner := agentflow.NewRunner(agentflow.NewStaticPlanner(), nil)
+	if !*autoApprove {
+		runner.Approve = func(a agent.Action) (bool, error) {
+			fmt.Printf("需要批准动作:\n  %s [%s] %s\n", a.ID, a.Type, a.Description)
+			if a.Command != "" {
+				fmt.Printf("  command: %s\n", a.Command)
+			}
+			if a.Path != "" {
+				fmt.Printf("  path: %s\n", a.Path)
+			}
+			fmt.Print("批准? [y/N] ")
+			reader := bufio.NewReader(os.Stdin)
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return false, err
+			}
+			answer := strings.ToLower(strings.TrimSpace(line))
+			return answer == "y" || answer == "yes", nil
+		}
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	res, err := runner.Run(ctx, agentflow.Request{
+		Prompt:      *prompt,
+		WorkDir:     *workdir,
+		AutoApprove: *autoApprove,
+		Timeout:     *timeout,
+		TestCmd:     *testCmd,
+	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("\n===== Agent 主流程结果 =====")
+	fmt.Printf("Phase: %s\n", res.Session.Phase)
+	for _, a := range res.Session.Actions {
+		fmt.Printf("Action: %s [%s] %s\n", a.ID, a.Status, a.Description)
+		if a.Output != "" {
+			fmt.Printf("  Output: %s\n", a.Output)
+		}
+	}
+	if res.TestOutput != "" {
+		fmt.Printf("Test output:\n%s\n", res.TestOutput)
+	}
+	if *testCmd != "" {
+		fmt.Printf("Test OK: %v\n", res.TestOK)
+	}
+	if res.Diff != "" {
+		fmt.Printf("Diff:\n%s\n", res.Diff)
+	} else {
+		fmt.Println("Diff: (none)")
 	}
 	return nil
 }
