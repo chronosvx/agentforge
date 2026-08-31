@@ -21,3 +21,7 @@ secrets.json
 *.test
 coverage.out
 .DS_Store
+
+# Accidental local binaries / temporary sync files
+dsh-tui-go
+.!*!
