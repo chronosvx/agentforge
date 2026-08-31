@@ -1,0 +1,165 @@
+package provider
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/chronosvx/agentforge/internal/client"
+	"github.com/chronosvx/agentforge/internal/cost"
+	"github.com/chronosvx/agentforge/internal/offline"
+)
+
+type backendFakeProvider struct {
+	streamErr error
+}
+
+func (p *backendFakeProvider) Name() string                   { return "fake" }
+func (p *backendFakeProvider) Model() string                  { return "fake-model" }
+func (p *backendFakeProvider) CostEstimator() *cost.Estimator { return cost.NewEstimator() }
+
+func (p *backendFakeProvider) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+	return &ChatResponse{}, nil
+}
+
+func (p *backendFakeProvider) StreamChat(ctx context.Context, req ChatRequest) (<-chan StreamEvent, error) {
+	if p.streamErr != nil {
+		return nil, p.streamErr
+	}
+	ch := make(chan StreamEvent, 1)
+	ch <- StreamEvent{Type: StreamEventDone}
+	close(ch)
+	return ch, nil
+}
+
+func TestBackendStreamErrorQueuesOffline(t *testing.T) {
+	q := offline.NewQueue(filepath.Join(t.TempDir(), "queue.json"))
+	p := &backendFakeProvider{streamErr: errors.New("network down")}
+	b := NewBackendWithOffline(p, nil, q)
+
+	ctx := context.Background()
+	if _, err := b.Open(ctx, "workspace", "sess", nil); err != nil {
+		t.Fatalf("Open() error: %v", err)
+	}
+
+	events, err := b.Subscribe(ctx, "sess", 0)
+	if err != nil {
+		t.Fatalf("Subscribe() error: %v", err)
+	}
+
+	if _, err := b.Invoke(ctx, "sess", "chat", []any{"hello offline"}); err != nil {
+		t.Fatalf("Invoke() error: %v", err)
+	}
+
+	item := waitForOfflineItem(t, q)
+	if item.SessionID != "sess" {
+		t.Fatalf("offline item SessionID = %q, want %q", item.SessionID, "sess")
+	}
+	if item.Message != "hello offline" {
+		t.Fatalf("offline item Message = %q, want %q", item.Message, "hello offline")
+	}
+
+	ev := waitForOfflineEvent(t, events)
+	if ev.Operation != "error" {
+		t.Fatalf("offline event Operation = %q, want %q", ev.Operation, "error")
+	}
+	if ev.State["offline_queued"] != true {
+		t.Fatalf("offline event offline_queued = %#v, want true", ev.State["offline_queued"])
+	}
+	costState, ok := ev.State["cost"].(map[string]any)
+	if !ok {
+		t.Fatalf("offline event state has no cost map: %#v", ev.State["cost"])
+	}
+	if costState["lastError"] != "network down" {
+		t.Fatalf("offline event lastError = %#v, want %q", costState["lastError"], "network down")
+	}
+}
+
+func TestBackendFlushOfflineRemovesQueuedItem(t *testing.T) {
+	q := offline.NewQueue(filepath.Join(t.TempDir(), "queue.json"))
+	p := &backendFakeProvider{streamErr: errors.New("network down")}
+	b := NewBackend(p, nil)
+	b.SetOfflineQueue(q)
+
+	ctx := context.Background()
+	if _, err := b.Open(ctx, "workspace", "sess", nil); err != nil {
+		t.Fatalf("Open() error: %v", err)
+	}
+
+	if _, err := b.Invoke(ctx, "sess", "chat", []any{"hello retry"}); err != nil {
+		t.Fatalf("Invoke() error: %v", err)
+	}
+
+	item := waitForOfflineItem(t, q)
+	if item.Message != "hello retry" {
+		t.Fatalf("offline item Message = %q, want %q", item.Message, "hello retry")
+	}
+	waitForStreamingDone(t, b, "sess")
+
+	// Provider 恢复后，FlushOffline 应重发消息并从队列移除。
+	p.streamErr = nil
+	if err := b.FlushOffline(ctx); err != nil {
+		t.Fatalf("FlushOffline() error: %v", err)
+	}
+
+	items, err := q.Pending()
+	if err != nil {
+		t.Fatalf("Pending() after flush error: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("len(Pending()) after flush = %d, want 0; items = %+v", len(items), items)
+	}
+}
+
+func waitForOfflineItem(t *testing.T, q *offline.Queue) offline.Item {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		items, err := q.Pending()
+		if err != nil {
+			t.Fatalf("Pending() error: %v", err)
+		}
+		if len(items) > 0 {
+			return items[0]
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for offline queue item")
+	return offline.Item{}
+}
+
+func waitForOfflineEvent(t *testing.T, events <-chan client.Event) client.Event {
+	t.Helper()
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				t.Fatal("event channel closed before offline event")
+			}
+			if v, ok := ev.State["offline_queued"].(bool); ok && v {
+				return ev
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for offline_queued event")
+		}
+	}
+}
+
+func waitForStreamingDone(t *testing.T, b *Backend, sessionID string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		b.mu.Lock()
+		st := b.sessions[sessionID]
+		done := st == nil || !st.streaming
+		b.mu.Unlock()
+		if done {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for streaming to finish")
+}

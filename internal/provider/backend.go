@@ -10,6 +10,7 @@ import (
 
 	"github.com/chronosvx/agentforge/internal/client"
 	"github.com/chronosvx/agentforge/internal/cost"
+	"github.com/chronosvx/agentforge/internal/offline"
 	"github.com/chronosvx/agentforge/internal/session"
 )
 
@@ -23,6 +24,7 @@ type Backend struct {
 	provider Provider
 	store    *session.Store
 	model    string
+	offline  *offline.Queue
 	sessions map[string]*sessionState
 }
 
@@ -63,6 +65,20 @@ func NewBackendWithModel(p Provider, store *session.Store, model string) *Backen
 		b.model = model
 	}
 	return b
+}
+
+// NewBackendWithOffline 创建基于 Provider 的 UI 后端，并设置离线消息队列。
+func NewBackendWithOffline(p Provider, store *session.Store, q *offline.Queue) *Backend {
+	b := NewBackend(p, store)
+	b.offline = q
+	return b
+}
+
+// SetOfflineQueue 设置离线消息队列。队列用于 StreamChat 首次失败时暂存用户消息。
+func (b *Backend) SetOfflineQueue(q *offline.Queue) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.offline = q
 }
 
 // ProviderName 返回当前 Provider 的显示名称。
@@ -192,6 +208,36 @@ func (b *Backend) Invoke(ctx context.Context, channelID, method string, args []a
 	return text, nil
 }
 
+// FlushOffline 依次重发离线队列中的消息。每条消息重发成功后从队列移除，
+// 返回处理过程中遇到的第一个错误。
+func (b *Backend) FlushOffline(ctx context.Context) error {
+	b.mu.Lock()
+	q := b.offline
+	b.mu.Unlock()
+	if q == nil {
+		return nil
+	}
+
+	items, err := q.Pending()
+	if err != nil {
+		return err
+	}
+
+	var firstErr error
+	for _, item := range items {
+		if _, err := b.Invoke(ctx, item.SessionID, "chat", []any{item.Message}); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if err := q.Remove(item.ID); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 // Close 关闭指定会话，并关闭该会话的订阅流。
 func (b *Backend) Close(ctx context.Context, channelID string) error {
 	b.mu.Lock()
@@ -227,13 +273,18 @@ func (b *Backend) stream(st *sessionState, channelID, model string) {
 
 	b.mu.Lock()
 	msgs := make([]Message, 0, len(st.messages))
+	userText := ""
 	for _, m := range st.messages {
 		msgs = append(msgs, Message{Role: m.Role, Content: m.Content})
+		if m.Role == "user" {
+			userText = m.Content
+		}
 	}
 	streamCtx := st.ctx
 	if streamCtx == nil {
 		streamCtx = context.Background()
 	}
+	offlineQueue := b.offline
 	b.mu.Unlock()
 
 	// 使用会话级 context；Close 时通过 st.cancel 取消。
@@ -243,6 +294,14 @@ func (b *Backend) stream(st *sessionState, channelID, model string) {
 		Stream:   true,
 	})
 	if err != nil {
+		if offlineQueue != nil && userText != "" {
+			if enqueueErr := offlineQueue.Enqueue(channelID, userText); enqueueErr != nil {
+				b.emitError(st, channelID, fmt.Errorf("provider backend: queue offline message: %w", enqueueErr))
+				return
+			}
+			b.emitErrorWithOffline(st, channelID, err, true)
+			return
+		}
 		b.emitError(st, channelID, err)
 		return
 	}
@@ -356,6 +415,10 @@ func (b *Backend) emitDone(st *sessionState, channelID, content string) {
 }
 
 func (b *Backend) emitError(st *sessionState, channelID string, err error) {
+	b.emitErrorWithOffline(st, channelID, err, false)
+}
+
+func (b *Backend) emitErrorWithOffline(st *sessionState, channelID string, err error, offlineQueued bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if st.closed {
@@ -366,11 +429,15 @@ func (b *Backend) emitError(st *sessionState, channelID string, err error) {
 	}
 	st.cost["lastError"] = err.Error()
 	st.seq++
+	state := b.stateLocked(st)
+	if offlineQueued {
+		state["offline_queued"] = true
+	}
 	ev := client.Event{
 		Operation: "error",
 		ChannelID: channelID,
 		Version:   st.seq,
-		State:     b.stateLocked(st),
+		State:     state,
 	}
 	b.broadcastLocked(ev, st)
 }
