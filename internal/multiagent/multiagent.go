@@ -15,10 +15,11 @@ const maxConcurrent = 4
 
 // Task is a single unit of work for the multi-agent runner.
 type Task struct {
-	ID      string
-	Prompt  string
-	WorkDir string
-	TestCmd string
+	ID           string
+	Prompt       string
+	WorkDir      string
+	TestCmd      string
+	Dependencies []string
 }
 
 // Result is the outcome of one task execution.
@@ -88,9 +89,11 @@ func (r *Runner) Run(ctx context.Context, tasks []Task, deps map[string][]string
 	o := orchestrator.New()
 	subtasks := make([]orchestrator.SubTask, 0, len(tasks))
 	for _, task := range tasks {
+		depends := append([]string(nil), task.Dependencies...)
+		depends = append(depends, deps[task.ID]...)
 		subtasks = append(subtasks, orchestrator.SubTask{
 			ID:        task.ID,
-			DependsOn: append([]string(nil), deps[task.ID]...),
+			DependsOn: depends,
 		})
 	}
 	if err := o.AddTask(orchestrator.Task{ID: "multiagent", SubTasks: subtasks}); err != nil {

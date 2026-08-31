@@ -17,6 +17,7 @@ import (
 	"github.com/chronosvx/agentforge/internal/client"
 	"github.com/chronosvx/agentforge/internal/config"
 	"github.com/chronosvx/agentforge/internal/i18n"
+	"github.com/chronosvx/agentforge/internal/multiagent"
 	"github.com/chronosvx/agentforge/internal/plugin"
 	"github.com/chronosvx/agentforge/internal/security"
 	"github.com/chronosvx/agentforge/internal/session"
@@ -1454,5 +1455,37 @@ func TestMCPAuditCommandShowsEntries(t *testing.T) {
 	m.handleCommand("/mcp-audit")
 	if !strings.Contains(m.status, "secrets.read") || !strings.Contains(m.status, "deny false false") {
 		t.Fatalf("unexpected audit status: %q", m.status)
+	}
+}
+
+func TestParseMultiTasksJSON(t *testing.T) {
+	tasks, err := parseMultiTasks(`[
+		{"id":"a","prompt":"run echo a"},
+		{"id":"b","prompt":"run echo b","deps":["a"]}
+	]`, "/tmp")
+	if err != nil {
+		t.Fatalf("parseMultiTasks() error = %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("len(tasks) = %d, want 2", len(tasks))
+	}
+	if tasks[0].ID != "a" || tasks[0].WorkDir != "/tmp" {
+		t.Fatalf("task[0] = %+v", tasks[0])
+	}
+	if len(tasks[1].Dependencies) != 1 || tasks[1].Dependencies[0] != "a" {
+		t.Fatalf("task[1].Dependencies = %v, want [a]", tasks[1].Dependencies)
+	}
+}
+
+func TestRenderMultiAgentPanelShowsDependencyTree(t *testing.T) {
+	m := New(&config.Config{DataDir: t.TempDir()}, &fakeBackend{}, nil)
+	m.multiTasks = []multiagent.Task{
+		{ID: "a", Prompt: "A"},
+		{ID: "b", Prompt: "B", Dependencies: []string{"a"}},
+	}
+	m.multiStates = map[string]string{"a": "done", "b": "running"}
+	got := m.renderMultiAgentPanel()
+	if !strings.Contains(got, "a [done]") || !strings.Contains(got, "b [running]") {
+		t.Fatalf("unexpected multi-agent panel:\n%s", got)
 	}
 }

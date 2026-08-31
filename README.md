@@ -212,6 +212,18 @@ agentforge agent --prompt "edit README.md hello" --yes --commit --push --pr --pr
 
 # 并行执行多个 Agent 任务
 agentforge multiagent --tasks "run echo a,run echo b,run echo c" --yes
+
+# 真实 LLM 验收（需要 API Key）
+AGENTFORGE_PROVIDER=deepseek \
+AGENTFORGE_PROVIDER_KEY=sk-xxx \
+./scripts/acceptance-llm.sh
+```
+
+TUI 多 Agent 依赖图/子任务树：
+
+```text
+/multi [{"id":"a","prompt":"run echo a"},{"id":"b","prompt":"run echo b","deps":["a"]}]
+/agents
 ```
 
 详细参数说明见 [docs/usage.md](docs/usage.md)。

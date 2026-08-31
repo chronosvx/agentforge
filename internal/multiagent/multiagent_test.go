@@ -94,6 +94,28 @@ func TestRunDependencyChain(t *testing.T) {
 	}
 }
 
+func TestRunUsesTaskDependenciesField(t *testing.T) {
+	exec := &recordingExecutor{}
+	r := NewRunner(exec.execute)
+
+	tasks := []Task{
+		{ID: "a", Prompt: "A"},
+		{ID: "b", Prompt: "B", Dependencies: []string{"a"}},
+	}
+
+	results, err := r.Run(context.Background(), tasks, nil)
+	if err != nil {
+		t.Fatalf("Run() error = %v, want nil", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("len(results) = %d, want 2", len(results))
+	}
+	order := exec.order()
+	if len(order) != 2 || order[0] != "a" || order[1] != "b" {
+		t.Fatalf("execution order = %v, want [a b]", order)
+	}
+}
+
 func TestRunParallelDependencies(t *testing.T) {
 	exec := &recordingExecutor{}
 	r := NewRunner(exec.execute)

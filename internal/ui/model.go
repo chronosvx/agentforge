@@ -1879,15 +1879,27 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 	case "/multi":
 		rest := strings.TrimSpace(strings.TrimPrefix(cmd, "/multi"))
 		if rest == "" {
-			m.status = "usage: /multi <prompt1,prompt2,...>"
+			m.status = "usage: /multi <prompt1,prompt2,...> 或 /multi [{\"id\":\"a\",\"prompt\":\"...\",\"deps\":[\"b\"]}]"
 			break
+		}
+		if strings.HasPrefix(rest, "[") || strings.HasPrefix(rest, "{") {
+			tasks, err := parseMultiTasks(rest, m.workspaceDir())
+			if err != nil {
+				m.status = "multi json error: " + err.Error()
+				break
+			}
+			return m.startMultiAgent(tasks)
 		}
 		prompts := splitCommaList(rest)
 		if len(prompts) == 0 {
 			m.status = "usage: /multi <prompt1,prompt2,...>"
 			break
 		}
-		return m.startMultiAgent(prompts)
+		tasks := make([]multiagent.Task, 0, len(prompts))
+		for i, p := range prompts {
+			tasks = append(tasks, multiagent.Task{ID: fmt.Sprintf("task-%d", i), Prompt: p, WorkDir: m.workspaceDir()})
+		}
+		return m.startMultiAgent(tasks)
 	case "/agents":
 		if m.panel == panelMulti {
 			m.panel = panelNone
@@ -2204,14 +2216,18 @@ func (m *Model) mcpCallCmd(name string, args map[string]any) tea.Cmd {
 }
 
 // startMultiAgent 启动一个多 Agent 并行执行任务，并打开多 Agent 面板。
-func (m *Model) startMultiAgent(prompts []string) tea.Cmd {
-	tasks := make([]multiagent.Task, 0, len(prompts))
-	for i, p := range prompts {
-		tasks = append(tasks, multiagent.Task{
-			ID:      fmt.Sprintf("task-%d", i),
-			Prompt:  p,
-			WorkDir: m.workspaceDir(),
-		})
+func (m *Model) startMultiAgent(tasks []multiagent.Task) tea.Cmd {
+	if len(tasks) == 0 {
+		m.status = "multi-agent: no tasks"
+		return nil
+	}
+	for i := range tasks {
+		if tasks[i].ID == "" {
+			tasks[i].ID = fmt.Sprintf("task-%d", i)
+		}
+		if tasks[i].WorkDir == "" {
+			tasks[i].WorkDir = m.workspaceDir()
+		}
 	}
 	m.multiTasks = tasks
 	m.multiResults = nil
@@ -2696,7 +2712,7 @@ func (m *Model) renderAgentPanel() string {
 	return b.String()
 }
 
-// renderMultiAgentPanel 渲染多 Agent 执行面板。
+// renderMultiAgentPanel 渲染多 Agent 执行面板，优先展示依赖树。
 func (m *Model) renderMultiAgentPanel() string {
 	var b strings.Builder
 	b.WriteString("Multi-Agent\n")
@@ -2704,20 +2720,94 @@ func (m *Model) renderMultiAgentPanel() string {
 		b.WriteString("Use /multi <prompt1,prompt2,...> to start.\n")
 		return b.String()
 	}
-	for i, t := range m.multiTasks {
-		state := "pending"
-		if s, ok := m.multiStates[t.ID]; ok {
-			state = s
-		}
-		marker := " "
-		if i == m.multiCursor {
-			marker = ">"
-		}
-		b.WriteString(fmt.Sprintf("%s[%d] %s [%s] %s\n", marker, i+1, t.ID, state, truncateText(t.Prompt, 40)))
-		if out, ok := m.multiOutputs[t.ID]; ok && out != "" {
-			b.WriteString("    " + truncateText(out, 80) + "\n")
+
+	byID := make(map[string]multiagent.Task, len(m.multiTasks))
+	children := make(map[string][]string, len(m.multiTasks))
+	hasParent := make(map[string]bool, len(m.multiTasks))
+	for _, t := range m.multiTasks {
+		byID[t.ID] = t
+		for _, dep := range t.Dependencies {
+			children[dep] = append(children[dep], t.ID)
+			hasParent[t.ID] = true
 		}
 	}
+	roots := make([]string, 0, len(m.multiTasks))
+	for _, t := range m.multiTasks {
+		if !hasParent[t.ID] {
+			roots = append(roots, t.ID)
+		}
+	}
+
+	writeNode := func(id string, depth int) {}
+	writeNode = func(id string, depth int) {
+		t, ok := byID[id]
+		if !ok {
+			return
+		}
+		state := "pending"
+		if s, ok := m.multiStates[id]; ok {
+			state = s
+		}
+		idx := -1
+		for i, tt := range m.multiTasks {
+			if tt.ID == id {
+				idx = i
+				break
+			}
+		}
+		marker := " "
+		if idx == m.multiCursor {
+			marker = ">"
+		}
+		indent := strings.Repeat("  ", depth)
+		b.WriteString(fmt.Sprintf("%s%s%s [%s] %s\n", indent, marker, id, state, truncateText(t.Prompt, 40)))
+		if out, ok := m.multiOutputs[id]; ok && out != "" {
+			b.WriteString(indent + "    " + truncateText(out, 80) + "\n")
+		}
+		for _, child := range children[id] {
+			writeNode(child, depth+1)
+		}
+	}
+
+	if len(roots) > 0 {
+		visited := make(map[string]bool, len(m.multiTasks))
+		var renderTree func(id string, depth int)
+		renderTree = func(id string, depth int) {
+			if visited[id] {
+				return
+			}
+			visited[id] = true
+			writeNode(id, depth)
+			for _, child := range children[id] {
+				renderTree(child, depth+1)
+			}
+		}
+		for _, id := range roots {
+			renderTree(id, 0)
+		}
+		// 处理环或孤儿节点，避免漏显。
+		for _, t := range m.multiTasks {
+			if !visited[t.ID] {
+				renderTree(t.ID, 0)
+			}
+		}
+	} else {
+		for i, t := range m.multiTasks {
+			state := "pending"
+			if s, ok := m.multiStates[t.ID]; ok {
+				state = s
+			}
+			marker := " "
+			if i == m.multiCursor {
+				marker = ">"
+			}
+			b.WriteString(fmt.Sprintf("%s%s [%s] %s\n", marker, t.ID, state, truncateText(t.Prompt, 40)))
+			if out, ok := m.multiOutputs[t.ID]; ok && out != "" {
+				b.WriteString("    " + truncateText(out, 80) + "\n")
+			}
+		}
+	}
+
 	if m.multiRunning {
 		b.WriteString("\nRunning...\n")
 	} else if len(m.multiResults) > 0 {
@@ -3302,6 +3392,44 @@ func splitCommaList(s string) []string {
 		}
 	}
 	return out
+}
+
+// multiTaskJSON 是 /multi 命令 JSON 输入的单条任务结构。
+type multiTaskJSON struct {
+	ID      string   `json:"id"`
+	Prompt  string   `json:"prompt"`
+	WorkDir string   `json:"workdir"`
+	TestCmd string   `json:"test_cmd"`
+	Deps    []string `json:"deps"`
+}
+
+// parseMultiTasks 解析 /multi 的 JSON 任务数组，并填充默认工作目录。
+func parseMultiTasks(s, defaultWorkDir string) ([]multiagent.Task, error) {
+	var raw []multiTaskJSON
+	if err := json.Unmarshal([]byte(s), &raw); err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 {
+		return nil, errors.New("empty task list")
+	}
+	tasks := make([]multiagent.Task, 0, len(raw))
+	for i, r := range raw {
+		if strings.TrimSpace(r.Prompt) == "" {
+			return nil, fmt.Errorf("task %d has empty prompt", i)
+		}
+		wd := r.WorkDir
+		if wd == "" {
+			wd = defaultWorkDir
+		}
+		tasks = append(tasks, multiagent.Task{
+			ID:           r.ID,
+			Prompt:       r.Prompt,
+			WorkDir:      wd,
+			TestCmd:      r.TestCmd,
+			Dependencies: append([]string(nil), r.Deps...),
+		})
+	}
+	return tasks, nil
 }
 
 // memoryProject 返回当前项目记忆使用的 project 标识。
