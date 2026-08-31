@@ -114,9 +114,10 @@ type Model struct {
 	events      <-chan client.Event
 	eventCancel context.CancelFunc
 
-	messages []client.Message
-	status   string
-	err      error
+	messages        []client.Message
+	status          string
+	err             error
+	updateAvailable string
 
 	context      map[string]any
 	cost         map[string]any
@@ -307,6 +308,11 @@ func (m *Model) SetAudit(auditFn func(event string, fields map[string]any)) {
 }
 
 // SetAuditLog 设置审计日志器；传 nil 可关闭审计。
+// SetUpdateAvailable 设置状态栏中的新版本提示。
+func (m *Model) SetUpdateAvailable(version string) {
+	m.updateAvailable = strings.TrimSpace(version)
+}
+
 func (m *Model) SetAuditLog(l *security.AuditLog) {
 	if l == nil {
 		m.auditFn = nil
@@ -920,9 +926,13 @@ func (m Model) View() string {
 	case (m.costAlerted || strings.Contains(statusText, "error") || strings.Contains(statusText, "⚠")) && !strings.HasPrefix(statusText, "⚠"):
 		statusPrefix = "⚠ "
 	}
+	updateText := ""
+	if m.updateAvailable != "" {
+		updateText = " | ⬆ " + sanitizeTerminalText(m.updateAvailable)
+	}
 	statusLine := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("8")).
-		Render(fmt.Sprintf(" %s%s | session: %s | channel: %s | /context /cost /diff /todos /tools /skills /sessions /right /split /help ", statusPrefix, statusText, sanitizeTerminalText(m.sessionID), sanitizeTerminalText(m.channelID)))
+		Render(fmt.Sprintf(" %s%s | session: %s | channel: %s%s | /context /cost /diff /todos /tools /skills /sessions /right /split /help ", statusPrefix, statusText, sanitizeTerminalText(m.sessionID), sanitizeTerminalText(m.channelID), updateText))
 
 	panelView := m.renderPanel()
 	paletteView := ""

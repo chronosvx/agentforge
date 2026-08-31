@@ -50,7 +50,7 @@ func Scan(ctx context.Context, dir string) (*Info, error) {
 	isGit := false
 	if out, err := gitOutput(ctx, absDir, "rev-parse", "--show-toplevel"); err == nil {
 		if line := strings.TrimSpace(out); line != "" {
-			root = line
+			root = filepath.Clean(line)
 			isGit = true
 		}
 	}

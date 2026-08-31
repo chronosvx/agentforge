@@ -3,6 +3,7 @@ package offline
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -82,6 +83,9 @@ func TestQueuePersistsAcrossInstances(t *testing.T) {
 }
 
 func TestQueueFilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose Unix permission bits")
+	}
 	base := t.TempDir()
 	dir := filepath.Join(base, "private")
 	path := filepath.Join(dir, "queue.json")

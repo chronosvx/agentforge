@@ -566,3 +566,33 @@ func TestWarnPlaintextSecrets(t *testing.T) {
 		}
 	}
 }
+
+func TestBackupRestoreRoundTrip(t *testing.T) {
+	src := t.TempDir()
+	sessionDir := filepath.Join(src, "sessions")
+	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+		t.Fatalf("mkdir sessions: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionDir, "a.json"), []byte("hello"), 0o600); err != nil {
+		t.Fatalf("write session: %v", err)
+	}
+
+	out := filepath.Join(t.TempDir(), "backup.zip")
+	if err := runBackup([]string{"--out", out, "--data-dir", src}); err != nil {
+		t.Fatalf("runBackup error: %v", err)
+	}
+
+	dst := t.TempDir()
+	if err := runRestore([]string{"--in", out, "--data-dir", dst}); err != nil {
+		t.Fatalf("runRestore error: %v", err)
+	}
+
+	restored := filepath.Join(dst, filepath.Base(src), "sessions", "a.json")
+	data, err := os.ReadFile(restored)
+	if err != nil {
+		t.Fatalf("read restored file: %v", err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("restored content = %q, want hello", data)
+	}
+}

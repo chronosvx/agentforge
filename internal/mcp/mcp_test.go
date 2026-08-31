@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -124,6 +125,9 @@ func TestStdioClient(t *testing.T) {
 		t.Fatalf("write mock source: %v", err)
 	}
 	bin := filepath.Join(dir, "mock_mcp")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
 	cmd := exec.Command("go", "build", "-o", bin, src)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build stdio mock: %v\n%s", err, out)

@@ -71,6 +71,10 @@ func run() error {
 			return runMultiAgent(args[1:])
 		case "doctor":
 			return runDoctor(args[1:])
+		case "backup":
+			return runBackup(args[1:])
+		case "restore":
+			return runRestore(args[1:])
 		}
 	}
 
@@ -149,11 +153,12 @@ func run() error {
 		return runHeadless(cl, cfg, prompt, siemLog)
 	}
 
-	maybeCheckUpdate()
+	latest := maybeCheckUpdate()
 
 	model := ui.New(cfg, cl, store, func(event string, fields map[string]any) {
 		audit(auditLog, event, fields)
 	})
+	model.SetUpdateAvailable(latest)
 	program := tea.NewProgram(model)
 	final, err := program.Run()
 	if m, ok := final.(ui.Model); ok {
@@ -217,6 +222,8 @@ Commands:
   share        Share a session as an encrypted link
   open         Open a shared session link
   doctor       Check the local environment for requirements
+  backup       Backup the local data directory to a zip file
+  restore      Restore the local data directory from a zip file
 
 Flags:
   --mock              Run with the built-in mock backend
