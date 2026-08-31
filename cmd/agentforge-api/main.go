@@ -87,7 +87,7 @@ func main() {
 
 // buildBackend 根据命令行参数创建真实聊天后端。
 // 优先级：--provider > --api-url > --mock > --endpoint > nil(echo)。
-func buildBackend(providerName, providerKey, providerBaseURL, model, apiURL, dshAPIToken, endpoint string, mockMode bool, store *session.Store) (promptBackend, func(), error) {
+func buildBackend(providerName, providerKey, providerBaseURL, model, apiURL, dshAPIToken, endpoint string, mockMode bool, store session.LocalStore) (promptBackend, func(), error) {
 	if providerName != "" {
 		p, err := provider.NewProvider(provider.ProviderOptions{
 			Name:    providerName,

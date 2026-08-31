@@ -13,7 +13,7 @@ import (
 
 // Server 是开放 API 的 HTTP handler。
 type Server struct {
-	store           *session.Store
+	store           session.LocalStore
 	token           string
 	PromptFunc      func(ctx context.Context, sessionID, text string) (string, error)
 	OnAgentApproval func(approval any)
@@ -24,7 +24,7 @@ type Server struct {
 }
 
 // NewServer 创建 API Server。
-func NewServer(store *session.Store, token string, prompt func(ctx context.Context, sessionID, text string) (string, error)) *Server {
+func NewServer(store session.LocalStore, token string, prompt func(ctx context.Context, sessionID, text string) (string, error)) *Server {
 	s := &Server{
 		store:      store,
 		token:      token,

@@ -519,6 +519,28 @@ func runTestGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
+func TestNewSessionStoreEncrypted(t *testing.T) {
+	cfg := &config.Config{
+		DataDir:         t.TempDir(),
+		EncryptSessions: true,
+		SecretKey:       "000102030405060708090a0b0c0d0e0f",
+	}
+	store, err := newSessionStore(cfg)
+	if err != nil {
+		t.Fatalf("newSessionStore() error = %v", err)
+	}
+	if _, ok := store.(*session.EncryptedStore); !ok {
+		t.Fatalf("newSessionStore() = %T, want *session.EncryptedStore", store)
+	}
+}
+
+func TestNewSessionStoreEncryptedRequiresKey(t *testing.T) {
+	cfg := &config.Config{DataDir: t.TempDir(), EncryptSessions: true}
+	if _, err := newSessionStore(cfg); err == nil {
+		t.Fatal("newSessionStore() error = nil, want missing key error")
+	}
+}
+
 func TestWarnPlaintextSecrets(t *testing.T) {
 	cfg := &config.Config{
 		ProviderKey: "sk-test",

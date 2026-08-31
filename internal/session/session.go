@@ -34,6 +34,14 @@ type Entry struct {
 	Tools     []any            `json:"tools,omitempty"`
 }
 
+// LocalStore 是本地会话存储的公共接口，由 Store 和 EncryptedStore 实现。
+type LocalStore interface {
+	List() ([]Entry, error)
+	Load(id string) (*Entry, error)
+	Save(entry Entry) error
+	Delete(id string) error
+}
+
 // Store 提供会话记录的本地文件存储。
 type Store struct {
 	dir string

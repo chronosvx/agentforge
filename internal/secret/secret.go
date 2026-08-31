@@ -294,6 +294,15 @@ func (k *KeychainStore) Set(service, key, value string) error {
 	}
 	switch k.osName() {
 	case "darwin":
+		// 交互式终端下使用 security 的安全提示模式（-w 作为最后一个参数），
+		// 避免密钥出现在进程命令行中；非交互调用只能回退到参数传递。
+		if isTerminal(os.Stdin) {
+			out, err := k.runner("security", "add-generic-password", "-U", "-a", key, "-s", service, "-w")
+			if err != nil {
+				return fmt.Errorf("secret: macOS keychain add: %w: %s", err, strings.TrimSpace(string(out)))
+			}
+			return nil
+		}
 		out, err := k.runner("security", "add-generic-password", "-U", "-a", key, "-s", service, "-w", value)
 		if err != nil {
 			return fmt.Errorf("secret: macOS keychain add: %w: %s", err, strings.TrimSpace(string(out)))
@@ -388,6 +397,18 @@ func isKeychainNotFound(goos string, out []byte) bool {
 	default:
 		return false
 	}
+}
+
+// isTerminal 粗略判断文件描述符是否连接到交互式终端。
+func isTerminal(f *os.File) bool {
+	if f == nil {
+		return false
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 // NewStore 自动选择平台存储后端。

@@ -13,14 +13,14 @@ import (
 // 的后台 worker 串行完成。需要确认数据已落盘时可调用 Flush；后台写盘错误通过
 // Errors 通道收集。
 type AsyncStore struct {
-	store  *Store
+	store  LocalStore
 	writer *persist.Writer
 }
 
 // NewAsyncStore 创建 AsyncStore。
 //
 // buffer 用于预分配异步队列容量；队列本身不会因提交过快而阻塞 Save。
-func NewAsyncStore(store *Store, buffer int) *AsyncStore {
+func NewAsyncStore(store LocalStore, buffer int) *AsyncStore {
 	return &AsyncStore{
 		store:  store,
 		writer: persist.NewWriter(buffer),

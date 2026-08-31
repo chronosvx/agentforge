@@ -22,7 +22,7 @@ import (
 type Backend struct {
 	mu       sync.Mutex
 	provider Provider
-	store    *session.Store
+	store    session.LocalStore
 	model    string
 	offline  *offline.Queue
 	sessions map[string]*sessionState
@@ -45,7 +45,7 @@ type sessionState struct {
 }
 
 // NewBackend 创建基于 Provider 的 UI 后端。store 可为 nil，此时不写本地历史。
-func NewBackend(p Provider, store *session.Store) *Backend {
+func NewBackend(p Provider, store session.LocalStore) *Backend {
 	model := ""
 	if p != nil {
 		model = p.Model()
@@ -59,7 +59,7 @@ func NewBackend(p Provider, store *session.Store) *Backend {
 }
 
 // NewBackendWithModel 创建基于 Provider 的 UI 后端，并显式指定初始模型名。
-func NewBackendWithModel(p Provider, store *session.Store, model string) *Backend {
+func NewBackendWithModel(p Provider, store session.LocalStore, model string) *Backend {
 	b := NewBackend(p, store)
 	if model != "" {
 		b.model = model
@@ -68,7 +68,7 @@ func NewBackendWithModel(p Provider, store *session.Store, model string) *Backen
 }
 
 // NewBackendWithOffline 创建基于 Provider 的 UI 后端，并设置离线消息队列。
-func NewBackendWithOffline(p Provider, store *session.Store, q *offline.Queue) *Backend {
+func NewBackendWithOffline(p Provider, store session.LocalStore, q *offline.Queue) *Backend {
 	b := NewBackend(p, store)
 	b.offline = q
 	return b

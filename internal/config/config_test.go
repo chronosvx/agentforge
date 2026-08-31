@@ -203,3 +203,13 @@ func TestParseProviderKeyStdinFlag(t *testing.T) {
 		t.Fatal("expected ProviderKeyStdin true")
 	}
 }
+
+func TestParseEncryptSessionsFlag(t *testing.T) {
+	cfg, err := config.Parse([]string{"--encrypt-sessions"})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !cfg.EncryptSessions {
+		t.Fatal("expected EncryptSessions true")
+	}
+}

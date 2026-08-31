@@ -367,6 +367,11 @@ go run ./cmd/agentforge --provider deepseek --keychain
 ```
 
 - macOS 调用 `security`；Windows 调用 PowerShell + Credential Manager；Linux 需要安装 `secret-tool`（libsecret），未安装时会返回明确的“不支持”错误。
+- 交互式终端下，macOS Keychain 保存会优先使用 `security -w` 的安全提示模式，避免密钥出现在进程命令行；非交互场景仍会回退到参数传递，建议在可信的单用户机器上使用。
+- 不想让 API Key 出现在 Shell 历史/命令行中时，可以用 stdin 传入：
+  ```bash
+  echo "$DEEPSEEK_API_KEY" | agentforge --provider deepseek --provider-key-stdin --keychain
+  ```
 - 不想使用系统 Keychain 时，也可以把 Key 加密保存到本地文件 `<data-dir>/secrets.json`，主密钥来自 `--secret-key` 或环境变量 `DSH_SECRET_KEY`：
 
 ```bash
@@ -374,6 +379,21 @@ export DSH_SECRET_KEY=$(openssl rand -hex 32)
 go run ./cmd/agentforge --provider deepseek --provider-key sk-xxx --secret-key "$DSH_SECRET_KEY"
 go run ./cmd/agentforge --provider deepseek --secret-key "$DSH_SECRET_KEY"
 ```
+
+## 可选加密会话存储
+
+默认本地会话以明文 JSON 保存在 `<data-dir>/sessions/`。如需加密落盘：
+
+```bash
+export DSH_SECRET_KEY=$(openssl rand -hex 32)
+
+# 启动时启用加密会话存储
+go run ./cmd/agentforge --encrypt-sessions --secret-key "$DSH_SECRET_KEY"
+# 或使用环境变量
+DSH_SECRET_KEY="$DSH_SECRET_KEY" agentforge --encrypt-sessions
+```
+
+启用后会话写入 `<id>.json.enc`（AES-GCM），并自动清理同名旧明文文件。
 
 ## 可选遥测与自动更新检查
 

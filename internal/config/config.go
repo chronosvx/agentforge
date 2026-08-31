@@ -37,6 +37,7 @@ type Config struct {
 	ProviderBaseURL   string  // 直连厂商 OpenAI 兼容 Base URL（可选）
 	Model             string  // 直连厂商模型名（可选）
 	Keychain          bool    // 为 true 时优先使用系统 Keychain 保存/读取 --provider-key
+	EncryptSessions   bool    // 为 true 时本地会话使用 AES-GCM 加密存储
 	SecretKey         string  // EncryptedFileStore 主密钥（hex/base64），也可用 DSH_SECRET_KEY
 	ConfirmDataExport bool    // 为 true 时确认允许数据出境
 	NoAudit           bool    // 为 true 时禁用审计日志
@@ -75,6 +76,7 @@ func Parse(args []string) (*Config, error) {
 	fs.StringVar(&cfg.ProviderBaseURL, "provider-base-url", "", "直连厂商 OpenAI 兼容 Base URL（可选）")
 	fs.StringVar(&cfg.Model, "model", "", "直连厂商模型名（可选）")
 	fs.BoolVar(&cfg.Keychain, "keychain", false, "优先使用系统 Keychain/凭据管理器保存/读取 --provider-key")
+	fs.BoolVar(&cfg.EncryptSessions, "encrypt-sessions", false, "使用 AES-GCM 加密本地会话存储（需要 --secret-key 或 DSH_SECRET_KEY）")
 	fs.StringVar(&cfg.SecretKey, "secret-key", "", "EncryptedFileStore 主密钥（hex/base64；为空时读取 DSH_SECRET_KEY）")
 	fs.BoolVar(&cfg.ConfirmDataExport, "confirm-data-export", false, "确认允许数据出境（连接国外厂商时提示）")
 	fs.BoolVar(&cfg.NoAudit, "no-audit", false, "禁用审计日志（默认开启）")

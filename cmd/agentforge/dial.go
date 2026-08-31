@@ -136,7 +136,7 @@ func warnPlaintextSecrets(cfg *config.Config) {
 
 // dial 根据配置连接 Provider 直连、真实 DSH Web API、真实 Channel 或内置 mock server。
 // 返回的 cleanup 用于关闭 mock server（真实/Provider 连接时为 no-op）。
-func dial(cfg *config.Config, store *session.Store) (ui.ChatBackend, func(), error) {
+func dial(cfg *config.Config, store session.LocalStore) (ui.ChatBackend, func(), error) {
 	if cfg.Provider != "" {
 		p, err := provider.NewProvider(provider.ProviderOptions{
 			Name:    cfg.Provider,

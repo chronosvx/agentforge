@@ -105,7 +105,7 @@ var commandPaletteCommands = []string{
 type Model struct {
 	cfg        *config.Config
 	cl         ChatBackend
-	store      *session.Store
+	store      session.LocalStore
 	asyncStore *session.AsyncStore
 	auditFn    func(event string, fields map[string]any)
 
@@ -219,7 +219,7 @@ type Model struct {
 // New 创建一个新的 UI Model。
 //
 // auditFn 是可选审计回调；不传或传 nil 时 UI 不记录审计事件。
-func New(cfg *config.Config, cl ChatBackend, store *session.Store, auditFn ...func(event string, fields map[string]any)) Model {
+func New(cfg *config.Config, cl ChatBackend, store session.LocalStore, auditFn ...func(event string, fields map[string]any)) Model {
 	lang := i18n.LangZH
 	if cfg != nil && cfg.Lang != "" {
 		lang = i18n.Lang(cfg.Lang)

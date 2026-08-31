@@ -18,6 +18,8 @@ import (
 
 	"github.com/charmbracelet/bubbletea"
 	"github.com/chronosvx/agentforge/internal/config"
+	"github.com/chronosvx/agentforge/internal/secret"
+	"github.com/chronosvx/agentforge/internal/security"
 	"github.com/chronosvx/agentforge/internal/session"
 	"github.com/chronosvx/agentforge/internal/telemetry"
 	"github.com/chronosvx/agentforge/internal/ui"
@@ -118,9 +120,9 @@ func run() error {
 		return err
 	}
 
-	store, err := session.NewStore(cfg.DataDir)
+	store, err := newSessionStore(cfg)
 	if err != nil {
-		return fmt.Errorf("init session store: %w", err)
+		return err
 	}
 
 	cl, cleanup, err := dial(cfg, store)
@@ -152,6 +154,26 @@ func run() error {
 	}
 
 	return nil
+}
+
+// newSessionStore 根据配置创建本地会话存储；启用 --encrypt-sessions 时使用 AES-GCM 加密。
+func newSessionStore(cfg *config.Config) (session.LocalStore, error) {
+	if !cfg.EncryptSessions {
+		return session.NewStore(cfg.DataDir)
+	}
+
+	keySource := cfg.SecretKey
+	if keySource == "" {
+		keySource = os.Getenv(secret.EnvSecretKey)
+	}
+	if keySource == "" {
+		return nil, errors.New("--encrypt-sessions requires --secret-key or DSH_SECRET_KEY")
+	}
+	key, err := security.LoadKey(keySource)
+	if err != nil {
+		return nil, fmt.Errorf("parse session encryption key: %w", err)
+	}
+	return session.NewEncryptedStore(cfg.DataDir, key)
 }
 
 // extractGlobalIdentity 在子命令之前提取可选的 --user 与 --roles 全局参数。
