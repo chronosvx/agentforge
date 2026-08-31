@@ -57,5 +57,9 @@ go run ./cmd/agentforge agent \
   --prompt "add a --version flag to main.go and keep the program compilable"
 
 echo ""
+echo "==> Resulting diff:"
+cd "$TMP_DIR"
+git --no-pager diff --stat
+git --no-pager diff | sed -n '1,160p'
+echo ""
 echo "==> Acceptance passed: agent completed without a fatal error."
-echo "==> Inspect $TMP_DIR/main.go for the actual change (temp dir is cleaned on exit)."
