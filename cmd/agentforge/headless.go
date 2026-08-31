@@ -1,0 +1,174 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"github.com/chronosvx/agentforge/internal/client"
+	"github.com/chronosvx/agentforge/internal/config"
+	"github.com/chronosvx/agentforge/internal/enterprise"
+	"github.com/chronosvx/agentforge/internal/ui"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+)
+
+// extractHeadlessOptions 从参数中提取 --headless 与 --prompt，返回剩余参数。
+// 它避免修改 internal/config 的 flag 集合，同时让 headless 参数可被主流程识别。
+func extractHeadlessOptions(args []string) (headless bool, prompt string, rest []string, err error) {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--headless":
+			headless = true
+		case strings.HasPrefix(arg, "--headless="):
+			switch strings.TrimPrefix(arg, "--headless=") {
+			case "true":
+				headless = true
+			case "false":
+				headless = false
+			default:
+				return false, "", nil, fmt.Errorf("invalid --headless value %q", strings.TrimPrefix(arg, "--headless="))
+			}
+		case arg == "--prompt":
+			if i+1 >= len(args) {
+				return false, "", nil, errors.New("--prompt requires a value")
+			}
+			prompt = args[i+1]
+			i++
+		case strings.HasPrefix(arg, "--prompt="):
+			prompt = strings.TrimPrefix(arg, "--prompt=")
+		default:
+			rest = append(rest, arg)
+		}
+	}
+	return headless, prompt, rest, nil
+}
+
+// runHeadless 在非交互模式下通过现有 ChatBackend 发送 prompt，等待流式完成后打印最终结果。
+func runHeadless(cl ui.ChatBackend, cfg *config.Config, prompt string, siemLog *enterprise.LogSink) (err error) {
+	if strings.TrimSpace(prompt) == "" {
+		return errors.New("headless: --prompt is required")
+	}
+	defer func() {
+		result := "ok"
+		if err != nil {
+			result = "error"
+		}
+		emitSIEM(siemLog, cfg.User, "headless.complete", "headless", result)
+	}()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	snap, err := cl.Open(ctx, cfg.Workspace, cfg.SessionID, nil)
+	if err != nil {
+		return fmt.Errorf("headless: open session: %w", err)
+	}
+	events, err := cl.Subscribe(ctx, snap.ChannelID, snap.Version)
+	if err != nil {
+		return fmt.Errorf("headless: subscribe: %w", err)
+	}
+	if _, err := cl.Invoke(ctx, snap.ChannelID, "chat", []any{prompt}); err != nil {
+		return fmt.Errorf("headless: invoke: %w", err)
+	}
+
+	content, err := waitForHeadlessResult(ctx, events, snap.ChannelID)
+	if err != nil {
+		return err
+	}
+	fmt.Println(content)
+	return nil
+}
+
+// waitForHeadlessResult 消费事件流直到完成。Provider 后端会发送 done 事件；
+// 其他后端（如 DSH API）没有 done 事件时，在最后一条增量后短暂静默即视为完成。
+func waitForHeadlessResult(ctx context.Context, events <-chan client.Event, channelID string) (string, error) {
+	const idleTimeout = 3 * time.Second
+
+	idle := time.NewTimer(idleTimeout)
+	defer idle.Stop()
+
+	content := ""
+	for {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case ev, ok := <-events:
+			if !ok {
+				if content != "" {
+					return content, nil
+				}
+				return "", fmt.Errorf("headless: event stream for %s closed before completion", channelID)
+			}
+			if ev.Operation == "error" {
+				return "", fmt.Errorf("headless: backend error: %s", headlessErrorFromState(ev.State))
+			}
+			content = headlessContentFromState(ev.State)
+			if ev.Operation == "done" {
+				return content, nil
+			}
+			if !idle.Stop() {
+				select {
+				case <-idle.C:
+				default:
+				}
+			}
+			idle.Reset(idleTimeout)
+		case <-idle.C:
+			if content != "" {
+				return content, nil
+			}
+			return "", fmt.Errorf("headless: timed out waiting for result on %s", channelID)
+		}
+	}
+}
+
+// headlessContentFromState 从后端事件状态中提取最后一条 assistant 消息。
+func headlessContentFromState(state map[string]any) string {
+	switch msgs := state["messages"].(type) {
+	case []any:
+		for i := len(msgs) - 1; i >= 0; i-- {
+			m, ok := msgs[i].(map[string]any)
+			if !ok {
+				continue
+			}
+			role, _ := m["role"].(string)
+			if role != "assistant" {
+				continue
+			}
+			if s, ok := m["content"].(string); ok {
+				return s
+			}
+		}
+	case []map[string]any:
+		for i := len(msgs) - 1; i >= 0; i-- {
+			role, _ := msgs[i]["role"].(string)
+			if role != "assistant" {
+				continue
+			}
+			if s, ok := msgs[i]["content"].(string); ok {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+// headlessErrorFromState 从后端事件状态中提取错误信息。
+func headlessErrorFromState(state map[string]any) string {
+	if state == nil {
+		return "unknown error"
+	}
+	if cost, ok := state["cost"].(map[string]any); ok {
+		if s, ok := cost["lastError"].(string); ok && s != "" {
+			return s
+		}
+	}
+	if s, ok := state["error"].(string); ok && s != "" {
+		return s
+	}
+	return "unknown error"
+}
