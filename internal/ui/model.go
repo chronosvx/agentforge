@@ -24,6 +24,7 @@ import (
 	"github.com/chronosvx/agentforge/internal/i18n"
 	"github.com/chronosvx/agentforge/internal/mcp"
 	"github.com/chronosvx/agentforge/internal/mcpperm"
+	"github.com/chronosvx/agentforge/internal/memory"
 	"github.com/chronosvx/agentforge/internal/plugin"
 	"github.com/chronosvx/agentforge/internal/search"
 	"github.com/chronosvx/agentforge/internal/security"
@@ -96,6 +97,7 @@ var commandPaletteCommands = []string{
 	"/delete", "/close", "/skill-install", "/skill-sync", "/help",
 	"/agent", "/agent-new", "/agent-reset", "/checkpoint", "/rewind", "/mcp", "/mcp-call",
 	"/mcp-auto", "/mcp-confirm", "/mcp-deny", "/mcp-audit", "/timeline", "/fork",
+	"/remember", "/forget", "/memory",
 	"/exec",
 }
 
@@ -154,6 +156,7 @@ type Model struct {
 	window       *contextx.Window
 	checkpoints  *contextx.CheckpointStore
 	timeline     *timeline.Timeline
+	memoryStore  *memory.MemoryStore
 
 	execOpen     bool
 	executorType string
@@ -234,6 +237,15 @@ func New(cfg *config.Config, cl ChatBackend, store *session.Store, auditFn ...fu
 		mcpAudit:      mcpperm.NewAuditLog(),
 		timeline:      timeline.New(),
 		followBottom:  true,
+	}
+	if cfg != nil && cfg.DataDir != "" {
+		if ms, err := memory.NewStore(cfg.DataDir); err == nil {
+			m.memoryStore = ms
+		}
+	} else if home, err := os.UserHomeDir(); err == nil {
+		if ms, err := memory.NewStore(filepath.Join(home, ".agentforge")); err == nil {
+			m.memoryStore = ms
+		}
 	}
 	if len(auditFn) > 0 && auditFn[0] != nil {
 		m.auditFn = auditFn[0]
@@ -1747,6 +1759,76 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 		}
 		snap := m.timeline.Fork(label, data)
 		m.status = "forked timeline: " + snap.ID
+	case "/remember":
+		rest := strings.TrimSpace(strings.TrimPrefix(cmd, "/remember"))
+		key, value, ok := strings.Cut(rest, " ")
+		if !ok || strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
+			m.status = "usage: /remember <key> <value>"
+			break
+		}
+		if m.memoryStore == nil {
+			m.status = "memory store unavailable"
+			break
+		}
+		entry := memory.Entry{
+			Project: m.memoryProject(),
+			Key:     strings.TrimSpace(key),
+			Content: strings.TrimSpace(value),
+		}
+		if err := m.memoryStore.Save(context.Background(), entry); err != nil {
+			m.status = "remember error: " + err.Error()
+		} else {
+			m.status = "remembered: " + entry.Key
+		}
+	case "/forget":
+		key := strings.TrimSpace(strings.TrimPrefix(cmd, "/forget"))
+		if key == "" {
+			m.status = "usage: /forget <key>"
+			break
+		}
+		if m.memoryStore == nil {
+			m.status = "memory store unavailable"
+			break
+		}
+		if err := m.memoryStore.Delete(context.Background(), m.memoryProject(), key); err != nil {
+			m.status = "forget error: " + err.Error()
+		} else {
+			m.status = "forgot: " + key
+		}
+	case "/memory":
+		query := strings.TrimSpace(strings.TrimPrefix(cmd, "/memory"))
+		if m.memoryStore == nil {
+			m.status = "memory store unavailable"
+			break
+		}
+		project := m.memoryProject()
+		if query == "" {
+			entries, err := m.memoryStore.List(context.Background(), project)
+			if err != nil {
+				m.status = "memory error: " + err.Error()
+				break
+			}
+			lines := make([]string, 0, len(entries))
+			for _, e := range entries {
+				lines = append(lines, e.Key+": "+truncateText(e.Content, 40))
+			}
+			if len(lines) == 0 {
+				m.status = "memory: empty"
+			} else {
+				m.status = "memory: " + strings.Join(lines, "; ")
+			}
+			break
+		}
+		results := memory.NewSearcher(m.memoryStore).Search(project, query, 20)
+		lines := make([]string, 0, len(results))
+		for _, r := range results {
+			lines = append(lines, r.Key+": "+truncateText(r.Content, 40))
+		}
+		if len(lines) == 0 {
+			m.status = "memory: no results"
+		} else {
+			m.status = "memory: " + strings.Join(lines, "; ")
+		}
 	case "/exec":
 		rest := strings.TrimSpace(strings.TrimPrefix(cmd, "/exec"))
 		if rest == "" {
@@ -3044,6 +3126,14 @@ func skillState(enabled bool) string {
 		return "on"
 	}
 	return "off"
+}
+
+// memoryProject 返回当前项目记忆使用的 project 标识。
+func (m *Model) memoryProject() string {
+	if m.cfg != nil && strings.TrimSpace(m.cfg.Workspace) != "" {
+		return strings.TrimSpace(m.cfg.Workspace)
+	}
+	return "default"
 }
 
 func truncateText(s string, max int) string {

@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sort"
@@ -33,6 +34,7 @@ import (
 	"github.com/chronosvx/agentforge/internal/dshapi"
 	"github.com/chronosvx/agentforge/internal/enterprise"
 	"github.com/chronosvx/agentforge/internal/executor"
+	"github.com/chronosvx/agentforge/internal/gitflow"
 	"github.com/chronosvx/agentforge/internal/mock"
 	"github.com/chronosvx/agentforge/internal/provider"
 	"github.com/chronosvx/agentforge/internal/repomode"
@@ -642,6 +644,12 @@ func runAgent(args []string) error {
 	workdir := fs.String("workdir", ".", "工作目录")
 	testCmd := fs.String("test", "go test ./...", "测试命令；传空字符串可禁用测试")
 	timeout := fs.Duration("timeout", 5*time.Minute, "单条命令超时")
+	branch := fs.String("branch", "", "gitflow 分支名（默认自动生成）")
+	doCommit := fs.Bool("commit", false, "成功后自动创建 git 分支并提交")
+	doPush := fs.Bool("push", false, "提交后推送到 origin")
+	doPR := fs.Bool("pr", false, "提交后创建 PR（需要 gh CLI）")
+	prTitle := fs.String("pr-title", "", "PR 标题（默认使用提交信息）")
+	prBody := fs.String("pr-body", "", "PR 描述")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -752,7 +760,59 @@ func runAgent(args []string) error {
 	} else {
 		fmt.Println("Diff: (none)")
 	}
+
+	if *doCommit {
+		cfg := gitflow.Config{
+			WorkDir:   *workdir,
+			Branch:    *branch,
+			CommitMsg: "agentflow: " + *prompt,
+			PRTitle:   *prTitle,
+			PRBody:    *prBody,
+			Push:      *doPush,
+		}
+		if err := gitflow.EnsureBranch(ctx, cfg); err != nil {
+			return fmt.Errorf("agent: ensure branch: %w", err)
+		}
+		actualBranch := *branch
+		if actualBranch == "" {
+			actualBranch = currentGitBranch(*workdir)
+		}
+		sha, err := gitflow.Commit(ctx, cfg)
+		if err != nil {
+			if strings.Contains(err.Error(), "nothing to commit") || strings.Contains(err.Error(), "no changes added") {
+				fmt.Println("Commit: (nothing to commit)")
+			} else {
+				return fmt.Errorf("agent: commit: %w", err)
+			}
+		} else {
+			fmt.Printf("Commit: %s on %s\n", sha, actualBranch)
+		}
+		if *doPush {
+			if err := gitflow.Push(ctx, cfg); err != nil {
+				return fmt.Errorf("agent: push: %w", err)
+			}
+			fmt.Printf("Pushed: %s\n", actualBranch)
+		}
+		if *doPR {
+			url, err := gitflow.CreatePR(ctx, cfg)
+			if err != nil {
+				return fmt.Errorf("agent: create PR: %w", err)
+			}
+			fmt.Printf("PR: %s\n", url)
+		}
+	}
+
 	return nil
+}
+
+// currentGitBranch 返回指定目录当前 Git 分支名；失败时返回空字符串。
+func currentGitBranch(dir string) string {
+	cmd := exec.CommandContext(context.Background(), "git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // checkExecRBAC 校验模拟企业用户是否有权执行 exec。
