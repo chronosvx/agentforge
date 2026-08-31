@@ -15,6 +15,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -34,12 +35,14 @@ import (
 	"github.com/chronosvx/agentforge/internal/executor"
 	"github.com/chronosvx/agentforge/internal/mock"
 	"github.com/chronosvx/agentforge/internal/provider"
+	"github.com/chronosvx/agentforge/internal/repomode"
 	"github.com/chronosvx/agentforge/internal/secret"
 	"github.com/chronosvx/agentforge/internal/security"
 	"github.com/chronosvx/agentforge/internal/session"
 	"github.com/chronosvx/agentforge/internal/share"
 	"github.com/chronosvx/agentforge/internal/telemetry"
 	"github.com/chronosvx/agentforge/internal/ui"
+	"github.com/chronosvx/agentforge/internal/update"
 )
 
 func main() {
@@ -60,6 +63,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
+
+	maybeCheckUpdate()
 
 	if len(args) > 0 {
 		switch args[0] {
@@ -163,6 +168,30 @@ func run() error {
 	}
 
 	return nil
+}
+
+// maybeCheckUpdate 在后台/启动路径静默检查 GitHub 上的新版本。
+// 检查失败或网络不可用时忽略错误，不阻塞主流程。
+func maybeCheckUpdate() {
+	if os.Getenv("AGENTFORGE_NO_UPDATE_CHECK") != "" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	latest, err := update.LatestFromGitHubWithClient(ctx, "chronosvx", "agentforge", update.GitHubAPIBase, &http.Client{Timeout: 3 * time.Second})
+	if err != nil {
+		return
+	}
+
+	newer, err := update.Check(version, latest)
+	if err != nil {
+		return
+	}
+	if newer {
+		fmt.Fprintf(os.Stderr, "agentforge: new version %s available (current %s)\n", latest, version)
+	}
 }
 
 // extractGlobalIdentity 在子命令之前提取可选的 --user 与 --roles 全局参数。
@@ -571,12 +600,46 @@ func runExecWithIdentity(args []string, identityUser, identityRoles string) (ret
 	return nil
 }
 
+// buildRepoContext 将仓库扫描结果格式化为简短的上下文块。
+func buildRepoContext(info *repomode.Info) string {
+	if info == nil {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Repo context:\n")
+	fmt.Fprintf(&b, "Root: %s\n", info.Root)
+	fmt.Fprintf(&b, "Name: %s\n", info.Name)
+	fmt.Fprintf(&b, "TestDirs: %s\n", strings.Join(info.TestDirs, ","))
+	fmt.Fprintf(&b, "Recent changes:\n")
+	for _, change := range info.RecentChanges {
+		fmt.Fprintln(&b, change)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// staticPlannerWithOriginalPrompt 让静态规划器在请求携带仓库上下文时，
+// 仍使用原始用户请求进行确定性解析。
+type staticPlannerWithOriginalPrompt struct {
+	planner *agentflow.StaticPlanner
+	prompt  string
+}
+
+func (p staticPlannerWithOriginalPrompt) Plan(ctx context.Context, _ string, repo *agentflow.Repo) ([]agent.Action, error) {
+	return p.planner.Plan(ctx, p.prompt, repo)
+}
+
 // runAgent 实现 `agentforge agent` 子命令：Agent 主流程端到端 Demo。
 func runAgent(args []string) error {
 	fs := flag.NewFlagSet("agent", flag.ContinueOnError)
+	planner := fs.String("planner", "static", "规划器: static 或 llm")
+	repoMode := fs.Bool("repo", false, "扫描仓库并添加上下文")
+	providerName := fs.String("provider", "", "LLM 提供商")
+	providerKey := fs.String("provider-key", "", "LLM API Key")
+	model := fs.String("model", "", "LLM 模型")
+	baseURL := fs.String("base-url", "", "LLM API Base URL")
+	autoApprove := fs.Bool("yes", false, "自动批准所有动作")
 	prompt := fs.String("prompt", "", "自然语言需求")
 	workdir := fs.String("workdir", ".", "工作目录")
-	autoApprove := fs.Bool("yes", false, "自动批准所有动作")
 	testCmd := fs.String("test", "go test ./...", "测试命令；传空字符串可禁用测试")
 	timeout := fs.Duration("timeout", 5*time.Minute, "单条命令超时")
 	if err := fs.Parse(args); err != nil {
@@ -590,7 +653,55 @@ func runAgent(args []string) error {
 		return errors.New("agent: --prompt is required")
 	}
 
-	runner := agentflow.NewRunner(agentflow.NewStaticPlanner(), nil)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	planPrompt := *prompt
+	if *repoMode {
+		info, err := repomode.Scan(ctx, *workdir)
+		if err != nil {
+			return fmt.Errorf("agent: scan repo: %w", err)
+		}
+		planPrompt = buildRepoContext(info) + "\n\n" + *prompt
+	}
+
+	var p agentflow.Planner
+	switch strings.ToLower(strings.TrimSpace(*planner)) {
+	case "", "static":
+		sp := agentflow.NewStaticPlanner()
+		if *repoMode {
+			// 静态规划器只识别以 run/edit/test 开头的原始请求，
+			// 因此请求中保留仓库上下文，但规划时使用原始用户请求。
+			p = staticPlannerWithOriginalPrompt{planner: sp, prompt: *prompt}
+		} else {
+			p = sp
+		}
+	case "llm":
+		if strings.TrimSpace(*providerName) == "" {
+			return errors.New("agent: --provider is required with --planner llm")
+		}
+		prov, err := provider.NewProvider(provider.ProviderOptions{
+			Name:    *providerName,
+			APIKey:  *providerKey,
+			BaseURL: *baseURL,
+			Model:   *model,
+		})
+		if err != nil {
+			return fmt.Errorf("agent: provider: %w", err)
+		}
+		plannerModel := strings.TrimSpace(*model)
+		if plannerModel == "" {
+			plannerModel = prov.Model()
+		}
+		if plannerModel == "" {
+			return errors.New("agent: provider did not provide a default model")
+		}
+		p = agentflow.NewLLMPlanner(prov, plannerModel)
+	default:
+		return fmt.Errorf("agent: unknown planner %q", *planner)
+	}
+
+	runner := agentflow.NewRunner(p, nil)
 	if !*autoApprove {
 		runner.Approve = func(a agent.Action) (bool, error) {
 			fmt.Printf("需要批准动作:\n  %s [%s] %s\n", a.ID, a.Type, a.Description)
@@ -611,11 +722,8 @@ func runAgent(args []string) error {
 		}
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	res, err := runner.Run(ctx, agentflow.Request{
-		Prompt:      *prompt,
+		Prompt:      planPrompt,
 		WorkDir:     *workdir,
 		AutoApprove: *autoApprove,
 		Timeout:     *timeout,

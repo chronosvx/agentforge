@@ -4,6 +4,7 @@ package ui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -22,11 +23,13 @@ import (
 	"github.com/chronosvx/agentforge/internal/cost"
 	"github.com/chronosvx/agentforge/internal/i18n"
 	"github.com/chronosvx/agentforge/internal/mcp"
+	"github.com/chronosvx/agentforge/internal/mcpperm"
 	"github.com/chronosvx/agentforge/internal/plugin"
 	"github.com/chronosvx/agentforge/internal/search"
 	"github.com/chronosvx/agentforge/internal/security"
 	"github.com/chronosvx/agentforge/internal/session"
 	"github.com/chronosvx/agentforge/internal/skill"
+	"github.com/chronosvx/agentforge/internal/timeline"
 )
 
 // ChatBackend 是 UI 层对聊天后端的抽象，支持 mock/tui channel/真实 DSH API。
@@ -92,6 +95,7 @@ var commandPaletteCommands = []string{
 	"/plugin", "/search", "/find", "/right", "/split", "/model", "/new", "/rename", "/export",
 	"/delete", "/close", "/skill-install", "/skill-sync", "/help",
 	"/agent", "/agent-new", "/agent-reset", "/checkpoint", "/rewind", "/mcp", "/mcp-call",
+	"/mcp-auto", "/mcp-confirm", "/mcp-deny", "/mcp-audit", "/timeline", "/fork",
 	"/exec",
 }
 
@@ -145,8 +149,11 @@ type Model struct {
 	mcpClient    *mcp.Client
 	mcpTools     []mcp.Tool
 	mcpCursor    int
+	mcpPolicy    *mcpperm.Policy
+	mcpAudit     *mcpperm.AuditLog
 	window       *contextx.Window
 	checkpoints  *contextx.CheckpointStore
+	timeline     *timeline.Timeline
 
 	execOpen     bool
 	executorType string
@@ -223,6 +230,9 @@ func New(cfg *config.Config, cl ChatBackend, store *session.Store, auditFn ...fu
 		costLimit:     cfg.CostLimit,
 		window:        contextx.NewWindow(),
 		checkpoints:   contextx.NewCheckpointStore(),
+		mcpPolicy:     mcpperm.NewPolicy(mcpperm.ModeConfirm),
+		mcpAudit:      mcpperm.NewAuditLog(),
+		timeline:      timeline.New(),
 		followBottom:  true,
 	}
 	if len(auditFn) > 0 && auditFn[0] != nil {
@@ -455,6 +465,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case mcpCallMsg:
 		if msg.err != nil {
 			m.status = "mcp call error: " + msg.err.Error()
+			break
+		}
+		if msg.requiresApproval {
+			m.status = "mcp call requires approval (auto-approved in demo)"
 			break
 		}
 		data, err := json.Marshal(msg.result)
@@ -1558,33 +1572,67 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 		m.status = "agent session reset: " + string(m.agentSession.Phase)
 	case "/checkpoint":
 		name := strings.TrimSpace(strings.TrimPrefix(cmd, "/checkpoint"))
-		if name == "" || m.checkpoints == nil {
+		if name == "" || m.checkpoints == nil || m.window == nil {
 			m.status = "usage: /checkpoint <name>"
 			break
 		}
 		cp := m.window.Checkpoint(name)
 		if err := m.checkpoints.Save(cp); err != nil {
 			m.status = "checkpoint error: " + err.Error()
-		} else {
-			m.status = "checkpoint saved: " + name
+			break
 		}
+		if m.timeline == nil {
+			m.timeline = timeline.New()
+		}
+		data, err := json.Marshal(m.messages)
+		if err != nil {
+			m.status = "checkpoint saved: " + name + " (timeline error: " + err.Error() + ")"
+			break
+		}
+		m.timeline.Add(name, data)
+		m.status = "checkpoint saved: " + name
 	case "/rewind":
 		name := strings.TrimSpace(strings.TrimPrefix(cmd, "/rewind"))
-		if name == "" || m.checkpoints == nil {
+		if name == "" {
 			m.status = "usage: /rewind <name>"
 			break
 		}
-		cp, err := m.checkpoints.Load(name)
+		if m.checkpoints != nil {
+			if cp, err := m.checkpoints.Load(name); err == nil {
+				m.messages = append([]client.Message(nil), cp.Messages...)
+				m.dirty = true
+				m.followBottom = true
+				if m.window == nil {
+					m.window = contextx.NewWindow()
+				}
+				m.window.Rewind(cp)
+				m.persist()
+				m.status = "rewound to checkpoint: " + name
+				break
+			}
+		}
+		if m.timeline == nil {
+			m.timeline = timeline.New()
+		}
+		snap, err := m.timeline.Rewind(name)
 		if err != nil {
 			m.status = "rewind error: " + err.Error()
 			break
 		}
-		m.messages = append([]client.Message(nil), cp.Messages...)
+		var msgs []client.Message
+		if err := json.Unmarshal(snap.Data, &msgs); err != nil {
+			m.status = "rewind error: " + err.Error()
+			break
+		}
+		m.messages = msgs
 		m.dirty = true
 		m.followBottom = true
-		m.window.Rewind(cp)
+		if m.window == nil {
+			m.window = contextx.NewWindow()
+		}
+		m.window.Rewind(contextx.Checkpoint{ID: name, Messages: msgs})
 		m.persist()
-		m.status = "rewound to checkpoint: " + name
+		m.status = "rewound to timeline: " + name
 	case "/mcp":
 		url := strings.TrimSpace(strings.TrimPrefix(cmd, "/mcp"))
 		if url == "" {
@@ -1617,6 +1665,88 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 			break
 		}
 		return m.mcpCallCmd(tool, args)
+	case "/mcp-auto":
+		tool := strings.TrimSpace(strings.TrimPrefix(cmd, "/mcp-auto"))
+		if tool == "" {
+			m.status = "usage: /mcp-auto <tool>"
+			break
+		}
+		if m.mcpPolicy == nil {
+			m.mcpPolicy = mcpperm.NewPolicy(mcpperm.ModeConfirm)
+		}
+		m.mcpPolicy.Set(tool, mcpperm.ModeAuto)
+		m.status = "mcp policy auto: " + tool
+	case "/mcp-confirm":
+		tool := strings.TrimSpace(strings.TrimPrefix(cmd, "/mcp-confirm"))
+		if tool == "" {
+			m.status = "usage: /mcp-confirm <tool>"
+			break
+		}
+		if m.mcpPolicy == nil {
+			m.mcpPolicy = mcpperm.NewPolicy(mcpperm.ModeConfirm)
+		}
+		m.mcpPolicy.Set(tool, mcpperm.ModeConfirm)
+		m.status = "mcp policy confirm: " + tool
+	case "/mcp-deny":
+		tool := strings.TrimSpace(strings.TrimPrefix(cmd, "/mcp-deny"))
+		if tool == "" {
+			m.status = "usage: /mcp-deny <tool>"
+			break
+		}
+		if m.mcpPolicy == nil {
+			m.mcpPolicy = mcpperm.NewPolicy(mcpperm.ModeConfirm)
+		}
+		m.mcpPolicy.Set(tool, mcpperm.ModeDeny)
+		m.status = "mcp policy deny: " + tool
+	case "/mcp-audit":
+		if m.mcpAudit == nil {
+			m.mcpAudit = mcpperm.NewAuditLog()
+		}
+		entries := m.mcpAudit.List()
+		const maxAuditEntries = 5
+		start := 0
+		if len(entries) > maxAuditEntries {
+			start = len(entries) - maxAuditEntries
+		}
+		lines := make([]string, 0, len(entries)-start)
+		for _, e := range entries[start:] {
+			lines = append(lines, fmt.Sprintf("%s %s %t %t", e.Tool, e.Decision.Mode, e.Decision.Allowed, e.Decision.RequiresApproval))
+		}
+		if len(lines) == 0 {
+			m.status = "mcp audit: no entries"
+		} else {
+			m.status = "mcp audit: " + strings.Join(lines, "; ")
+		}
+	case "/timeline":
+		if m.timeline == nil {
+			m.timeline = timeline.New()
+		}
+		snapshots := m.timeline.List()
+		if len(snapshots) == 0 {
+			m.status = "timeline: empty"
+			break
+		}
+		lines := make([]string, 0, len(snapshots))
+		for _, s := range snapshots {
+			lines = append(lines, fmt.Sprintf("%s(%s)", s.ID, s.Label))
+		}
+		m.status = "timeline: " + strings.Join(lines, "; ")
+	case "/fork":
+		label := strings.TrimSpace(strings.TrimPrefix(cmd, "/fork"))
+		if label == "" {
+			m.status = "usage: /fork <label>"
+			break
+		}
+		data, err := json.Marshal(m.messages)
+		if err != nil {
+			m.status = "fork error: " + err.Error()
+			break
+		}
+		if m.timeline == nil {
+			m.timeline = timeline.New()
+		}
+		snap := m.timeline.Fork(label, data)
+		m.status = "forked timeline: " + snap.ID
 	case "/exec":
 		rest := strings.TrimSpace(strings.TrimPrefix(cmd, "/exec"))
 		if rest == "" {
@@ -1902,11 +2032,27 @@ func (m *Model) mcpConnectCmd(url string) tea.Cmd {
 
 // mcpCallCmd 异步调用已连接的 MCP 工具。
 func (m *Model) mcpCallCmd(name string, args map[string]any) tea.Cmd {
+	if m.mcpPolicy == nil {
+		m.mcpPolicy = mcpperm.NewPolicy(mcpperm.ModeConfirm)
+	}
+	if m.mcpAudit == nil {
+		m.mcpAudit = mcpperm.NewAuditLog()
+	}
+	decision := m.mcpPolicy.Decide(name)
+	m.mcpAudit.Record(name, decision)
+
+	if !decision.Allowed {
+		return func() tea.Msg {
+			return mcpCallMsg{name: name, err: errors.New("mcp tool denied by policy")}
+		}
+	}
+
+	requiresApproval := decision.RequiresApproval
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		result, err := m.mcpClient.CallTool(ctx, name, args)
-		return mcpCallMsg{name: name, result: result, err: err}
+		return mcpCallMsg{name: name, result: result, err: err, requiresApproval: requiresApproval}
 	}
 }
 
@@ -3131,9 +3277,10 @@ type mcpConnectMsg struct {
 }
 
 type mcpCallMsg struct {
-	name   string
-	result any
-	err    error
+	name             string
+	result           any
+	err              error
+	requiresApproval bool
 }
 
 type sentMsg struct {

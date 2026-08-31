@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chronosvx/agentforge/internal/repomode"
 	"github.com/chronosvx/agentforge/internal/session"
 )
 
@@ -389,5 +390,49 @@ func (b *syncTestBlobs) handle(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(raw)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func TestBuildRepoContext(t *testing.T) {
+	got := buildRepoContext(&repomode.Info{
+		Root:          "/tmp/repo",
+		Name:          "repo",
+		TestDirs:      []string{"a", "b"},
+		RecentChanges: []string{"abc123 feat", "def456 fix"},
+	})
+	want := "Repo context:\nRoot: /tmp/repo\nName: repo\nTestDirs: a,b\nRecent changes:\nabc123 feat\ndef456 fix"
+	if got != want {
+		t.Fatalf("buildRepoContext() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildRepoContextEmptyRecentChanges(t *testing.T) {
+	got := buildRepoContext(&repomode.Info{
+		Root:     "/tmp/repo",
+		Name:     "repo",
+		TestDirs: nil,
+	})
+	want := "Repo context:\nRoot: /tmp/repo\nName: repo\nTestDirs: \nRecent changes:"
+	if got != want {
+		t.Fatalf("buildRepoContext() = %q, want %q", got, want)
+	}
+}
+
+func TestMaybeCheckUpdateSkipsWhenEnvSet(t *testing.T) {
+	t.Setenv("AGENTFORGE_NO_UPDATE_CHECK", "1")
+	maybeCheckUpdate()
+}
+
+func TestRunAgentLLMRequiresProvider(t *testing.T) {
+	err := runAgent([]string{"--planner", "llm", "--prompt", "hello"})
+	if err == nil || !strings.Contains(err.Error(), "--provider is required") {
+		t.Fatalf("runAgent llm without provider error = %v, want --provider is required", err)
+	}
+}
+
+func TestRunAgentUnknownPlanner(t *testing.T) {
+	err := runAgent([]string{"--planner", "bogus", "--prompt", "hello"})
+	if err == nil || !strings.Contains(err.Error(), "unknown planner") {
+		t.Fatalf("runAgent unknown planner error = %v, want unknown planner", err)
 	}
 }
