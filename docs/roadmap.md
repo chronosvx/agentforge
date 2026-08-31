@@ -88,6 +88,13 @@ agentforge 的定位收敛为：
 - [x] 多 Agent 可视化 UI 编排（依赖树/子任务树：`/multi` JSON 依赖与 `/agents` 面板）
 - [x] 真实 LLM 验收：`scripts/acceptance-llm.sh` 已用 DeepSeek 跑通并成功产生代码 Diff（`agent --planner llm --repo --yes`）
 
+## 生产就绪进度
+
+- [x] P0：`doctor`、根命令 `--help` 子命令列表、无后端友好提示、正式 Release `v0.3.0`、安装脚本支持 Release 下载与 checksum
+- [x] P1：`backup` / `restore`、UI 状态栏新版本提示、CI CLI 冒烟测试、多平台 Release pipeline
+- [x] P2 部分：`audit` 日志查看命令
+- [ ] P2 剩余：真实 MCP Server 验收、真实 Git Patch-to-PR 验收、多 Agent 依赖真实执行、TUI 人工体验测试、Linux libsecret 原生后端在真实 Linux 上验证
+
 ## 新增重点
 
 ### P0：核心闭环（先做到“一个人每天都会用”）
