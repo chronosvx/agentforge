@@ -37,7 +37,7 @@ func (k *KeychainStore) linuxSet(service, key, value string) error {
 	defer C.g_hash_table_unref(attrs)
 
 	var err *C.GError
-	ok := C.secret_password_store_sync(nil, attrs, nil, &err, cValue, nil)
+	ok := C.secret_password_storev_sync(nil, attrs, nil, &err, cValue)
 	if !ok {
 		msg := linuxGError(err)
 		return fmt.Errorf("secret: Linux libsecret store: %s", msg)
@@ -59,7 +59,7 @@ func (k *KeychainStore) linuxGet(service, key string) (string, error) {
 	defer C.g_hash_table_unref(attrs)
 
 	var err *C.GError
-	password := C.secret_password_lookup_sync(nil, attrs, nil, &err)
+	password := C.secret_password_lookupv_sync(nil, attrs, nil, &err)
 	if password == nil {
 		msg := linuxGError(err)
 		if msg == "" {
@@ -85,7 +85,7 @@ func (k *KeychainStore) linuxDelete(service, key string) error {
 	defer C.g_hash_table_unref(attrs)
 
 	var err *C.GError
-	ok := C.secret_password_clear_sync(nil, attrs, nil, &err)
+	ok := C.secret_password_clearv_sync(nil, attrs, nil, &err)
 	if !ok {
 		msg := linuxGError(err)
 		return fmt.Errorf("secret: Linux libsecret clear: %s", msg)
