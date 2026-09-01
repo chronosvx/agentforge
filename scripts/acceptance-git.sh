@@ -20,6 +20,15 @@ printf '# Accept\n\nhello\n' > README.md
 git add .
 git commit -q -m "initial"
 
+BASE_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+
+# If a remote is provided, push the initial base branch first so PR creation
+# has a distinct base branch even when the remote repository is empty.
+if [[ -n "${AGENTFORGE_GIT_REMOTE:-}" ]]; then
+  git remote add origin "$AGENTFORGE_GIT_REMOTE"
+  git push -u origin "$BASE_BRANCH"
+fi
+
 echo "==> Running agent commit flow"
 cd "$REPO_ROOT"
 go run ./cmd/agentforge agent \
@@ -46,11 +55,10 @@ elif [[ "$AGENTFORGE_GIT_REMOTE" != *:* && "$AGENTFORGE_GIT_REMOTE" != https://*
   exit 1
 else
   echo "==> Pushing and creating PR"
-  git -C "$TMP_DIR" remote add origin "$AGENTFORGE_GIT_REMOTE"
   cd "$TMP_DIR"
   branch="$(git rev-parse --abbrev-ref HEAD)"
   git push -u origin "$branch"
-  gh pr create --title "agentflow: acceptance" --body "Automated acceptance PR" --head "$branch"
+  gh pr create --title "agentflow: acceptance" --body "Automated acceptance PR" --head "$branch" --base "$BASE_BRANCH"
 fi
 
 echo ""

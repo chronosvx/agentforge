@@ -33,20 +33,20 @@ This document is the production-readiness checklist for agentforge.
 - [x] `scripts/acceptance-mcp.sh`
 - [x] `make acceptance`
 
-### Remaining real-environment checks
-- [ ] Real MCP Server:
+### Real-environment checks
+- [x] Local MCP Server (temporary HTTP JSON-RPC server on 127.0.0.1:18000):
   ```bash
-  MCP_URL=http://127.0.0.1:8000/mcp ./scripts/acceptance-mcp.sh
+  MCP_URL=http://127.0.0.1:18000 ./scripts/acceptance-mcp.sh
   ```
-- [ ] Real Git Patch-to-PR:
+- [x] Real Git Patch-to-PR (temporary private GitHub repo, PR created and repo deleted):
   ```bash
   AGENTFORGE_GIT_REMOTE=git@github.com:you/repo.git ./scripts/acceptance-git.sh
   ```
-- [ ] Real multi-agent dependency run:
+- [x] Real multi-agent execution:
   ```bash
-  agentforge multiagent --tasks "run echo a,run echo b" --yes
+  go run ./cmd/agentforge multiagent --tasks "run echo a,run echo b" --yes
   ```
-- [ ] TUI manual test:
+- [ ] TUI manual test (interactive; requires human):
   ```bash
   agentforge --mock
   ```
