@@ -659,3 +659,9 @@ func TestRunMCPListTools(t *testing.T) {
 		t.Fatalf("unexpected MCP output:\n%s", out)
 	}
 }
+
+func TestRunDoctorDoesNotFail(t *testing.T) {
+	if err := runDoctor([]string{"--data-dir", t.TempDir()}); err != nil {
+		t.Fatalf("runDoctor error: %v", err)
+	}
+}
