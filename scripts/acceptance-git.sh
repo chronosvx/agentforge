@@ -36,7 +36,15 @@ echo ""
 echo "==> README.md:"
 cat "$TMP_DIR/README.md"
 
-if [[ -n "${AGENTFORGE_GIT_REMOTE:-}" ]]; then
+if [[ -z "${AGENTFORGE_GIT_REMOTE:-}" ]]; then
+  echo ""
+  echo "==> Skipping push/PR (AGENTFORGE_GIT_REMOTE is not set)."
+  echo "    To also push and create a PR, run with:"
+  echo "    AGENTFORGE_GIT_REMOTE=git@github.com:you/repo.git $0"
+elif [[ "$AGENTFORGE_GIT_REMOTE" != *:* && "$AGENTFORGE_GIT_REMOTE" != https://* ]]; then
+  echo "ERROR: AGENTFORGE_GIT_REMOTE does not look like a git remote: '$AGENTFORGE_GIT_REMOTE'" >&2
+  exit 1
+else
   echo "==> Pushing and creating PR"
   git -C "$TMP_DIR" remote add origin "$AGENTFORGE_GIT_REMOTE"
   cd "$TMP_DIR"
