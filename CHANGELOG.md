@@ -4,6 +4,36 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.4.0] - 2026-09-01
+
+### 新增
+
+- **生产就绪 CLI**：
+  - `agentforge doctor`：环境自检
+  - `agentforge init`：生成配置文件
+  - `agentforge config`：查看配置（密钥打码）
+  - `agentforge audit`：查看审计日志
+  - `agentforge mcp --url ...`：连接 MCP Server 并列出/调用工具
+  - `agentforge backup` / `restore`：数据备份与恢复
+- **Agent 体验**：
+  - `agent --json` / `multiagent --json`
+  - `agent --dry-run` / `multiagent --dry-run`
+  - LLM Planner 自动重试，避免只读计划假通过
+- **安装与发布**：
+  - 安装脚本支持私有仓库 `gh release download`
+  - 多平台 Release 构建与 checksum
+  - 新增 MIT License
+- **安全加固**：
+  - 可选加密会话存储 `--encrypt-sessions`
+  - Windows 原生 Credential Manager
+  - 密钥脱敏与审计增强
+
+### 修复
+
+- 修复 Windows `go vet` unsafe pointer 警告
+- 修复跨平台 CI 测试问题
+- 修复 Git acceptance 脚本在空仓库上的 PR 创建
+
 ## [0.3.0] - 2026-08-31
 
 ### 新增
