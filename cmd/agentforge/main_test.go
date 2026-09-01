@@ -596,3 +596,17 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 		t.Fatalf("restored content = %q, want hello", data)
 	}
 }
+
+func TestRunInitWritesConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInit([]string{"--api-url", "http://127.0.0.1:54695", "--data-dir", dir}); err != nil {
+		t.Fatalf("runInit error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "config.json"))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if !strings.Contains(string(data), "http://127.0.0.1:54695") {
+		t.Fatalf("config does not contain api-url: %s", data)
+	}
+}
