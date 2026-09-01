@@ -50,7 +50,9 @@ This document is the production-readiness checklist for agentforge.
   ```bash
   agentforge --mock
   ```
-- [ ] Linux libsecret native backend:
+
+### Deferred / skipped
+- [ ] Linux libsecret native backend (deferred by user):
   ```bash
   sudo apt install libsecret-1-dev libglib2.0-dev
   go test -tags libsecret ./internal/secret/...

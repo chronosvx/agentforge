@@ -93,7 +93,8 @@ agentforge 的定位收敛为：
 - [x] P0：`doctor`、`init`、根命令 `--help` 子命令列表、无后端友好提示、正式 Release `v0.3.0`、安装脚本支持 Release 下载与 checksum
 - [x] P1：`backup` / `restore`、UI 状态栏新版本提示、CI CLI 冒烟测试、多平台 Release pipeline
 - [x] P2 部分：`audit`、`config`、`mcp` CLI、`agent/multiagent --json`、`--dry-run`、`make acceptance`、`acceptance-git/multiagent/mcp` 验收脚本
-- [ ] P2 剩余：真实 MCP Server 验收、真实 Git Patch-to-PR 验收、多 Agent 依赖真实执行、TUI 人工体验测试、Linux libsecret 原生后端在真实 Linux 上验证
+- [ ] P2 剩余：真实 MCP Server 验收、真实 Git Patch-to-PR 验收、多 Agent 依赖真实执行、TUI 人工体验测试
+- [ ] P2 延期：Linux libsecret 原生后端在真实 Linux 上验证（用户暂缓）
 
 ## 新增重点
 
