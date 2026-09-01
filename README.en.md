@@ -7,6 +7,7 @@
 ![Go](https://img.shields.io/badge/Go-1.24-blue)
 ![CI](https://img.shields.io/github/actions/workflow/status/chronosvx/agentforge/ci.yml?branch=main)
 ![Release](https://img.shields.io/github/v/release/chronosvx/agentforge)
+![License](https://img.shields.io/github/license/chronosvx/agentforge)
 ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)
 
 ## ✨ Highlights

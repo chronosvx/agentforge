@@ -57,21 +57,37 @@ install_from_release() {
   [[ "$os" == "windows" ]] && exe=".exe"
 
   local asset="agentforge-${os}-${arch}${exe}"
-  local url="https://github.com/${REPO}/releases/${VERSION}/download/${asset}"
+  local download_version="$VERSION"
 
-  echo "==> downloading ${url}"
-  if command -v curl >/dev/null 2>&1; then
-    curl -fL --retry 3 -o "$TMP_DIR/$asset" "$url"
+  echo "==> downloading ${asset} from ${REPO} ${VERSION}"
+  if command -v gh >/dev/null 2>&1; then
+    if [[ "$download_version" == "latest" ]]; then
+      download_version="$(gh release view -R "$REPO" --json tagName -q .tagName 2>/dev/null)"
+    fi
+    if [[ -z "$download_version" ]]; then
+      echo "ERROR: unable to resolve latest release for $REPO" >&2
+      return 1
+    fi
+    gh release download "$download_version" -R "$REPO" -p "$asset" -D "$TMP_DIR" --clobber || return 1
+  elif command -v curl >/dev/null 2>&1; then
+    local url="https://github.com/${REPO}/releases/${download_version}/download/${asset}"
+    curl -fL --retry 3 -o "$TMP_DIR/$asset" "$url" || return 1
   elif command -v wget >/dev/null 2>&1; then
-    wget -O "$TMP_DIR/$asset" "$url"
+    local url="https://github.com/${REPO}/releases/${download_version}/download/${asset}"
+    wget -O "$TMP_DIR/$asset" "$url" || return 1
   else
-    echo "ERROR: neither curl nor wget found" >&2
+    echo "ERROR: neither gh, curl nor wget found" >&2
     return 1
   fi
 
   if [[ "${AGENTFORGE_SKIP_CHECKSUM:-}" != "1" ]]; then
-    local checksums_url="https://github.com/${REPO}/releases/${VERSION}/download/checksums.txt"
-    if curl -fsSL --retry 2 -o "$TMP_DIR/checksums.txt" "$checksums_url" 2>/dev/null; then
+    local checksum_ok=1
+    if command -v gh >/dev/null 2>&1 && gh release download "$download_version" -R "$REPO" -p checksums.txt -D "$TMP_DIR" --clobber >/dev/null 2>&1; then
+      checksum_ok=0
+    elif command -v curl >/dev/null 2>&1 && curl -fsSL --retry 2 -o "$TMP_DIR/checksums.txt" "https://github.com/${REPO}/releases/${download_version}/download/checksums.txt" 2>/dev/null; then
+      checksum_ok=0
+    fi
+    if [[ "$checksum_ok" == "0" ]]; then
       (cd "$TMP_DIR" && shasum -a 256 -c <(grep "$asset" checksums.txt) >/dev/null 2>&1) || {
         echo "ERROR: checksum verification failed for $asset" >&2
         return 1
