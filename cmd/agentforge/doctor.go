@@ -37,6 +37,8 @@ func runDoctor(args []string) error {
 	ok = report("GitHub CLI (gh)", checkExecutable("gh"), ok)
 	ok = report("Keychain backend", checkKeychainBackend(), ok)
 	ok = report("Data directory", checkDataDir(expanded), ok)
+	reportInfo("Provider env (AGENTFORGE_PROVIDER)", os.Getenv("AGENTFORGE_PROVIDER"))
+	reportInfo("MCP URL (MCP_URL)", os.Getenv("MCP_URL"))
 
 	if ok {
 		fmt.Println("\nAll checks passed.")
@@ -53,6 +55,14 @@ func report(name string, err error, ok bool) bool {
 	}
 	fmt.Printf("[WARN] %s: %v\n", name, err)
 	return false
+}
+
+func reportInfo(name, value string) {
+	if value == "" {
+		fmt.Printf("[INFO] %s: (not set)\n", name)
+		return
+	}
+	fmt.Printf("[INFO] %s: %s\n", name, value)
 }
 
 func checkGo() error {
