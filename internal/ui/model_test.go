@@ -687,6 +687,8 @@ func TestStaleConnectedMsgIgnored(t *testing.T) {
 func TestCommandPaletteOpenClose(t *testing.T) {
 	m := Model{}
 	m.openCommandPalette()
+	m.showAllCommands = true
+	m.applyCommandPaletteFilter()
 	if !m.commandPaletteOpen {
 		t.Fatal("expected command palette open")
 	}
@@ -703,6 +705,196 @@ func TestCommandPaletteOpenClose(t *testing.T) {
 	}
 	if m.commandPaletteFiltered != nil {
 		t.Fatalf("expected filtered list cleared, got %#v", m.commandPaletteFiltered)
+	}
+}
+
+func TestHelpOpenClose(t *testing.T) {
+	m := Model{}
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+	updated := res.(Model)
+	if !updated.helpOpen {
+		t.Fatal("expected ? to open help when input is empty")
+	}
+
+	res, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated = res.(Model)
+	if updated.helpOpen {
+		t.Fatal("expected Esc to close help")
+	}
+}
+
+func TestHelpAllowsCtrlCToStop(t *testing.T) {
+	m := Model{}
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+	updated := res.(Model)
+	if !updated.helpOpen {
+		t.Fatal("expected help open")
+	}
+
+	res, _ = updated.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	updated = res.(Model)
+	if updated.helpOpen {
+		t.Fatal("expected Ctrl+C to close help")
+	}
+	if !updated.stopRequested {
+		t.Fatal("expected Ctrl+C to request stop")
+	}
+}
+
+func TestQuestionMarkTypesWhenInputNotEmpty(t *testing.T) {
+	input := textarea.New()
+	input.Focus()
+	input.SetValue("abc")
+	m := Model{input: input}
+
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+	updated := res.(Model)
+	if updated.helpOpen {
+		t.Fatal("expected ? not to open help when input is non-empty")
+	}
+	if updated.input.Value() != "abc?" {
+		t.Fatalf("expected ? typed into input, got %q", updated.input.Value())
+	}
+}
+
+func TestNonModalPanelAllowsTyping(t *testing.T) {
+	input := textarea.New()
+	input.Focus()
+	m := Model{panel: panelDiff, input: input}
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	updated := res.(Model)
+	if updated.panel != panelDiff {
+		t.Fatalf("expected diff panel to stay open, got %v", updated.panel)
+	}
+	if updated.input.Value() != "h" {
+		t.Fatalf("expected typed character in input, got %q", updated.input.Value())
+	}
+	if updated.panelFocused {
+		t.Fatal("expected panelFocused false by default")
+	}
+}
+
+func TestTabFocusPanelAndEscReturnsToInput(t *testing.T) {
+	input := textarea.New()
+	m := Model{panel: panelDiff, diffs: []any{map[string]any{}, map[string]any{}}, input: input}
+
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	updated := res.(Model)
+	if !updated.panelFocused {
+		t.Fatal("expected Tab to focus panel")
+	}
+
+	res, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	updated = res.(Model)
+	if updated.diffCursor != 1 {
+		t.Fatalf("expected panel j to move diff cursor, got %d", updated.diffCursor)
+	}
+	if updated.input.Value() != "" {
+		t.Fatalf("expected panel key not to reach input, got %q", updated.input.Value())
+	}
+
+	res, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated = res.(Model)
+	if updated.panelFocused {
+		t.Fatal("expected first Esc to return to input focus")
+	}
+	if updated.panel != panelDiff {
+		t.Fatalf("expected panel still open after first Esc, got %v", updated.panel)
+	}
+
+	res, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated = res.(Model)
+	if updated.panel != panelNone {
+		t.Fatalf("expected second Esc to close panel, got %v", updated.panel)
+	}
+}
+
+func TestEscReturnsFocusWithOnlyRightPanel(t *testing.T) {
+	input := textarea.New()
+	input.Focus()
+	m := Model{rightPanel: true, input: input}
+
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	updated := res.(Model)
+	if !updated.panelFocused {
+		t.Fatal("expected Tab to focus right panel")
+	}
+
+	res, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated = res.(Model)
+	if updated.panelFocused {
+		t.Fatal("expected Esc to return to input focus")
+	}
+	if !updated.rightPanel {
+		t.Fatal("expected right panel to remain open after Esc")
+	}
+}
+
+func TestEscCancelsDiffApplyBeforeUnfocusing(t *testing.T) {
+	input := textarea.New()
+	input.Focus()
+	m := Model{
+		panel:         panelDiff,
+		diffs:         []any{map[string]any{"file": "a.txt", "diff": "diff --git a/a.txt b/a.txt\n-old\n+new"}},
+		diffDecisions: map[int]string{0: "accepted"},
+		input:         input,
+	}
+
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	updated := res.(Model)
+	res, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})
+	updated = res.(Model)
+	if !updated.pendingApply {
+		t.Fatal("expected g to open apply confirmation")
+	}
+
+	res, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated = res.(Model)
+	if updated.pendingApply {
+		t.Fatal("expected Esc to cancel apply confirmation")
+	}
+	if !updated.panelFocused {
+		t.Fatal("expected Esc to stay in panel focus after cancelling sub-state")
+	}
+	if updated.panel != panelDiff {
+		t.Fatalf("expected diff panel to remain open, got %v", updated.panel)
+	}
+}
+
+func TestCommandPaletteTabTogglesBasicAndAll(t *testing.T) {
+	m := Model{}
+	m.openCommandPalette()
+	if m.showAllCommands {
+		t.Fatal("expected default basic command list")
+	}
+	if len(m.commandPaletteFiltered) != len(basicCommandPaletteCommands) {
+		t.Fatalf("expected basic commands, got %d", len(m.commandPaletteFiltered))
+	}
+
+	m.handleCommandPaletteKey(tea.KeyMsg{Type: tea.KeyTab})
+	if !m.showAllCommands {
+		t.Fatal("expected Tab to show all commands")
+	}
+	if len(m.commandPaletteFiltered) != len(commandPaletteCommands) {
+		t.Fatalf("expected all commands after Tab, got %d", len(m.commandPaletteFiltered))
+	}
+
+	m.handleCommandPaletteKey(tea.KeyMsg{Type: tea.KeyTab})
+	if m.showAllCommands {
+		t.Fatal("expected second Tab back to basic commands")
+	}
+	if len(m.commandPaletteFiltered) != len(basicCommandPaletteCommands) {
+		t.Fatalf("expected basic commands after second Tab, got %d", len(m.commandPaletteFiltered))
+	}
+
+	// Reopening the palette should always start from basic commands.
+	m.closeCommandPalette()
+	m.openCommandPalette()
+	if m.showAllCommands {
+		t.Fatal("expected reopen to reset to basic commands")
+	}
+	if len(m.commandPaletteFiltered) != len(basicCommandPaletteCommands) {
+		t.Fatalf("expected basic commands after reopen, got %d", len(m.commandPaletteFiltered))
 	}
 }
 
@@ -764,6 +956,8 @@ func TestCommandPaletteCloseEsc(t *testing.T) {
 func TestCommandPaletteTypingNavigationAndBackspace(t *testing.T) {
 	m := Model{}
 	m.openCommandPalette()
+	m.showAllCommands = true
+	m.applyCommandPaletteFilter()
 
 	m.handleCommandPaletteKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
 	if m.commandPaletteQuery != "d" {
@@ -1161,15 +1355,21 @@ func TestCommandHelpUsesI18n(t *testing.T) {
 
 	m := Model{}
 	m.handleCommand("/help")
-	if !strings.Contains(m.status, "可用命令") {
-		t.Fatalf("zh help status = %q, want Chinese command help", m.status)
+	if !m.helpOpen {
+		t.Fatal("expected /help to open help panel")
+	}
+	if !strings.Contains(m.renderHelpPanel(), "基础命令") {
+		t.Fatalf("zh help panel = %q, want Chinese basic commands header", m.renderHelpPanel())
 	}
 
 	i18n.SetLang(i18n.LangEN)
 	m = Model{}
 	m.handleCommand("/help")
-	if !strings.Contains(m.status, "Commands:") {
-		t.Fatalf("en help status = %q, want English command help", m.status)
+	if !m.helpOpen {
+		t.Fatal("expected /help to open help panel in English")
+	}
+	if !strings.Contains(m.renderHelpPanel(), "Basic commands") {
+		t.Fatalf("en help panel = %q, want English basic commands header", m.renderHelpPanel())
 	}
 }
 

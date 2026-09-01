@@ -22,12 +22,17 @@ func (m *Model) openCommandPalette() {
 	m.commandPaletteOpen = true
 	m.commandPaletteQuery = ""
 	m.commandPaletteCursor = 0
+	m.showAllCommands = false
 	m.commandPaletteFiltered = m.commandPaletteEntries()
 }
 
-// commandPaletteEntries 返回命令面板可执行列表：内置命令 + 已加载插件的命令。
+// commandPaletteEntries 返回命令面板可执行列表：基础命令（默认）或全部命令 + 已加载插件的命令。
 func (m *Model) commandPaletteEntries() []string {
-	entries := append([]string(nil), commandPaletteCommands...)
+	base := commandPaletteCommands
+	if !m.showAllCommands {
+		base = basicCommandPaletteCommands
+	}
+	entries := append([]string(nil), base...)
 	if m.pluginManager == nil {
 		return entries
 	}
@@ -82,7 +87,11 @@ func (m *Model) handleCommandPaletteKey(key tea.KeyMsg) (bool, tea.Cmd) {
 		cmd := m.commandPaletteFiltered[m.commandPaletteCursor]
 		m.closeCommandPalette()
 		return true, m.handleCommand(cmd)
-	case "j", "down":
+	case "tab":
+		m.showAllCommands = !m.showAllCommands
+		m.applyCommandPaletteFilter()
+		return true, nil
+	case "j", "down", "ctrl+n":
 		if len(m.commandPaletteFiltered) > 0 && m.commandPaletteCursor < len(m.commandPaletteFiltered)-1 {
 			m.commandPaletteCursor++
 		}
@@ -90,6 +99,14 @@ func (m *Model) handleCommandPaletteKey(key tea.KeyMsg) (bool, tea.Cmd) {
 	case "k", "up":
 		if m.commandPaletteCursor > 0 {
 			m.commandPaletteCursor--
+		}
+		return true, nil
+	case "home":
+		m.commandPaletteCursor = 0
+		return true, nil
+	case "end":
+		if len(m.commandPaletteFiltered) > 0 {
+			m.commandPaletteCursor = len(m.commandPaletteFiltered) - 1
 		}
 		return true, nil
 	case "backspace":
@@ -193,44 +210,44 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 	switch name {
 	case "/context":
 		if m.panel == panelContext {
-			m.panel = panelNone
+			m.closePanel()
 		} else {
 			m.panel = panelContext
 		}
 	case "/cost":
 		if m.panel == panelCost {
-			m.panel = panelNone
+			m.closePanel()
 		} else {
 			m.panel = panelCost
 		}
 	case "/diff":
 		if m.panel == panelDiff {
-			m.panel = panelNone
+			m.closePanel()
 		} else {
 			m.panel = panelDiff
 		}
 	case "/todos":
 		if m.panel == panelTodos {
-			m.panel = panelNone
+			m.closePanel()
 		} else {
 			m.panel = panelTodos
 		}
 	case "/tools":
 		if m.panel == panelTools {
-			m.panel = panelNone
+			m.closePanel()
 		} else {
 			m.panel = panelTools
 		}
 	case "/skills":
 		if m.panel == panelSkills {
-			m.panel = panelNone
+			m.closePanel()
 		} else {
 			m.panel = panelSkills
 		}
 		m.skillDetail = false
 	case "/plugin":
 		if m.panel == panelPlugins {
-			m.panel = panelNone
+			m.closePanel()
 		} else {
 			m.panel = panelPlugins
 		}
@@ -254,7 +271,7 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 				m.agentCursor = 0
 			}
 			if m.panel == panelAgent {
-				m.panel = panelNone
+				m.closePanel()
 			} else {
 				m.panel = panelAgent
 			}
@@ -279,7 +296,7 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 			if m.mcpClient == nil {
 				m.status = "usage: /mcp <url>"
 			} else if m.panel == panelMCP {
-				m.panel = panelNone
+				m.closePanel()
 			} else {
 				m.panel = panelMCP
 			}
@@ -421,7 +438,7 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 		return m.startMultiAgent(tasks)
 	case "/agents":
 		if m.panel == panelMulti {
-			m.panel = panelNone
+			m.closePanel()
 		} else {
 			m.panel = panelMulti
 		}
@@ -484,7 +501,7 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 		m.applyLayout()
 	case "/sessions":
 		if m.panel == panelSessions {
-			m.panel = panelNone
+			m.closePanel()
 		} else {
 			m.panel = panelSessions
 		}
@@ -502,8 +519,8 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 			}
 		}
 	case "/help":
-		m.panel = panelNone
-		m.status = i18n.T("help.commands")
+		m.closePanel()
+		m.openHelp()
 	case "/close":
 		if m.eventCancel != nil {
 			m.eventCancel()
@@ -681,7 +698,11 @@ func (m *Model) renderCommandPalette() string {
 
 	var b strings.Builder
 	b.WriteString(i18n.T("panel.command_title") + "\n")
-	b.WriteString("> " + m.commandPaletteQuery + "\n")
+	mode := "basic"
+	if m.showAllCommands {
+		mode = "all"
+	}
+	b.WriteString("> " + m.commandPaletteQuery + "  [" + mode + "]\n")
 	if len(m.commandPaletteFiltered) == 0 {
 		b.WriteString(i18n.T("panel.no_match") + "\n")
 	} else {

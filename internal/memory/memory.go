@@ -169,6 +169,30 @@ func (s *MemoryStore) Delete(ctx context.Context, project, key string) error {
 	return s.writeLocked(project, entries)
 }
 
+// Projects 返回已有记忆条目的项目名列表，按字典序排列。
+func (s *MemoryStore) Projects(ctx context.Context) ([]string, error) {
+	if s == nil || s.dir == "" {
+		return []string{}, nil
+	}
+	memoryDir := filepath.Join(s.dir, "memory")
+	entries, err := os.ReadDir(memoryDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, fmt.Errorf("memory: list projects: %w", err)
+	}
+	projects := make([]string, 0)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		projects = append(projects, strings.TrimSuffix(entry.Name(), ".json"))
+	}
+	sort.Strings(projects)
+	return projects, nil
+}
+
 // Path 返回指定项目记忆文件的路径。
 func (s *MemoryStore) Path(project string) string {
 	if s == nil || s.dir == "" {

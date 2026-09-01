@@ -53,3 +53,10 @@ This document is the production-readiness checklist for agentforge.
 
 ### Deferred / skipped
 - [ ] Linux libsecret native backend: not included. Linux Keychain uses `secret-tool` CLI fallback. Experimental CGo backend was removed because it did not compile reliably against libsecret.
+
+## Preview: macOS GUI release
+
+- [x] `make release-gui` builds `dist/agentforge_gui.app` and `dist/agentforge_gui-<version>.dmg`, then writes `dist/gui-checksums.txt`.
+- [x] GitHub Actions workflow `gui-macos.yml` can be triggered manually (`workflow_dispatch`) to build and upload GUI artifacts.
+- [ ] The macOS GUI is still a preview; it is not yet part of the normal tag release automation.
+- [ ] Local GUI build requires **full Xcode** (not just Command Line Tools): `sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer`. Without full Xcode, use the manual `gui-macos.yml` workflow on GitHub Actions.

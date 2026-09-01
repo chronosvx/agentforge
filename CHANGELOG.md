@@ -19,9 +19,16 @@
   - `agent --json` / `multiagent --json`
   - `agent --dry-run` / `multiagent --dry-run`
   - LLM Planner 自动重试，避免只读计划假通过
+- **TUI 交互改进**：
+  - 启用鼠标支持（`tea.WithMouseCellMotion`），滚轮可滚动聊天 viewport 与命令面板/列表面板
+  - 新增帮助面板：`?`（输入框为空时）或 `Ctrl+/` 打开，`Esc` 关闭；`/help` 改为打开帮助面板
+  - 面板默认非模态：打开面板不抢占输入焦点，`Tab` 切换输入框/面板焦点，`Esc` 先返回输入再关闭面板
+  - 命令面板默认只展示基础命令，`Tab` 切换基础/全部命令，支持 `↑/↓`、`Home/End`、`Ctrl+N` 导航
+  - 状态栏精简为紧凑帮助提示 `? / Ctrl+/ help`；输入框占位提示加入 `Ctrl+P` 与 `Ctrl+/`
 - **安装与发布**：
   - 安装脚本支持私有仓库 `gh release download`
   - 多平台 Release 构建与 checksum
+  - 新增 macOS GUI 预览发布集成：`make release-gui` 生成 App/DMG 与校验和，GitHub Actions 可通过 `build-gui-macos` 手动构建并上传 GUI 预览产物
   - 新增 MIT License
 - **安全加固**：
   - 可选加密会话存储 `--encrypt-sessions`

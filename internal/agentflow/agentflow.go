@@ -45,6 +45,40 @@ type Result struct {
 	TestOK     bool
 }
 
+// EventType 是 Agent 运行过程中对外发布的事件类型。
+type EventType string
+
+const (
+	EventPlan   EventType = "plan"
+	EventAction EventType = "action"
+	EventTest   EventType = "test"
+	EventDiff   EventType = "diff"
+	EventDone   EventType = "done"
+	EventError  EventType = "error"
+)
+
+// ActionEvent 是动作事件的轻量 DTO，避免把 agent.Action 的内部状态全量暴露。
+type ActionEvent struct {
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	Status      string `json:"status"`
+	Description string `json:"description"`
+	Command     string `json:"command,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Output      string `json:"output,omitempty"`
+}
+
+// Event 是 Runner 对外广播的一次运行事件。
+type Event struct {
+	Type       EventType     `json:"type"`
+	Actions    []ActionEvent `json:"actions,omitempty"`
+	Action     *ActionEvent  `json:"action,omitempty"`
+	TestOutput string        `json:"test_output,omitempty"`
+	TestOK     *bool         `json:"test_ok,omitempty"`
+	Diff       string        `json:"diff,omitempty"`
+	Error      string        `json:"error,omitempty"`
+}
+
 // Planner 根据自然语言请求生成 Agent 计划。
 type Planner interface {
 	Plan(ctx context.Context, prompt string, repo *Repo) ([]agent.Action, error)
@@ -58,6 +92,10 @@ type Runner struct {
 	Planner Planner
 	Exec    executor.Executor
 	Approve Approver
+
+	// OnEvent 在运行过程中同步收到事件；nil 时忽略。
+	// 注意：回调在 Runner 的执行 goroutine 内触发，不应做阻塞 IO。
+	OnEvent func(Event)
 }
 
 // NewRunner 创建一个 Runner。exec 为 nil 时使用本地执行器。
@@ -66,6 +104,32 @@ func NewRunner(p Planner, e executor.Executor) *Runner {
 		e = executor.NewLocalExecutor()
 	}
 	return &Runner{Planner: p, Exec: e}
+}
+
+func (r *Runner) emit(ev Event) {
+	if r != nil && r.OnEvent != nil {
+		r.OnEvent(ev)
+	}
+}
+
+func actionEvent(a agent.Action) ActionEvent {
+	return ActionEvent{
+		ID:          a.ID,
+		Type:        string(a.Type),
+		Status:      string(a.Status),
+		Description: a.Description,
+		Command:     a.Command,
+		Path:        a.Path,
+		Output:      a.Output,
+	}
+}
+
+func actionEvents(actions []agent.Action) []ActionEvent {
+	out := make([]ActionEvent, 0, len(actions))
+	for _, a := range actions {
+		out = append(out, actionEvent(a))
+	}
+	return out
 }
 
 // Run 执行完整主流程并返回结果。
@@ -87,10 +151,13 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 
 	actions, err := r.Planner.Plan(ctx, req.Prompt, repo)
 	if err != nil {
+		r.emit(Event{Type: EventError, Error: err.Error()})
 		return nil, fmt.Errorf("agentflow: plan: %w", err)
 	}
 	if len(actions) == 0 {
-		return nil, errors.New("agentflow: planner returned an empty plan")
+		err := errors.New("agentflow: planner returned an empty plan")
+		r.emit(Event{Type: EventError, Error: err.Error()})
+		return nil, err
 	}
 
 	policy := agent.AllowAll
@@ -101,6 +168,7 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 	session.Plan(actions)
 
 	result := &Result{Session: session, Actions: append([]agent.Action(nil), actions...)}
+	r.emit(Event{Type: EventPlan, Actions: actionEvents(actions)})
 
 	for {
 		a := session.NextPendingAction()
@@ -113,14 +181,18 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 			if !ok && r.Approve != nil {
 				ok, err = r.Approve(*a)
 				if err != nil {
+					r.emit(Event{Type: EventError, Error: err.Error()})
 					return result, fmt.Errorf("agentflow: approve: %w", err)
 				}
 			}
 			if !ok {
 				_ = session.Reject(a.ID)
-				return result, fmt.Errorf("agentflow: action %s rejected", a.ID)
+				err := fmt.Errorf("agentflow: action %s rejected", a.ID)
+				r.emit(Event{Type: EventError, Error: err.Error()})
+				return result, err
 			}
 			if err := session.Approve(a.ID); err != nil {
+				r.emit(Event{Type: EventError, Error: err.Error()})
 				return result, fmt.Errorf("agentflow: approve: %w", err)
 			}
 			a = session.NextPendingAction()
@@ -132,19 +204,38 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 		if req.DryRun {
 			output := "dry-run: " + a.Description
 			if err := session.MarkExecuted(a.ID, output); err != nil {
+				r.emit(Event{Type: EventError, Error: err.Error()})
 				return result, fmt.Errorf("agentflow: mark executed: %w", err)
 			}
+			ev := actionEvent(*a)
+			ev.Status = string(agent.ActionStatusExecuted)
+			ev.Output = output
+			r.emit(Event{Type: EventAction, Action: &ev})
 			continue
 		}
+
+		start := actionEvent(*a)
+		start.Status = "started"
+		r.emit(Event{Type: EventAction, Action: &start})
 
 		output, execErr := r.executeAction(ctx, *a, abs, req.Timeout)
 		if execErr != nil {
 			_ = session.MarkExecuted(a.ID, output+"\n"+execErr.Error())
+			ev := actionEvent(*a)
+			ev.Status = string(agent.ActionStatusExecuted)
+			ev.Output = output + "\n" + execErr.Error()
+			r.emit(Event{Type: EventAction, Action: &ev})
+			r.emit(Event{Type: EventError, Error: execErr.Error()})
 			return result, fmt.Errorf("agentflow: execute %s: %w", a.ID, execErr)
 		}
 		if err := session.MarkExecuted(a.ID, output); err != nil {
+			r.emit(Event{Type: EventError, Error: err.Error()})
 			return result, fmt.Errorf("agentflow: mark executed: %w", err)
 		}
+		ev := actionEvent(*a)
+		ev.Status = string(agent.ActionStatusExecuted)
+		ev.Output = output
+		r.emit(Event{Type: EventAction, Action: &ev})
 	}
 
 	// 有动作执行成功且配置了测试命令时，统一跑一次测试。
@@ -168,6 +259,7 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 				}
 			}
 		}
+		r.emit(Event{Type: EventTest, TestOutput: result.TestOutput, TestOK: &result.TestOK})
 	} else if len(actions) > 0 {
 		result.TestOK = true
 		for i := range session.Actions {
@@ -176,6 +268,8 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 				_ = session.MarkTested(a.ID, true)
 			}
 		}
+		ok := true
+		r.emit(Event{Type: EventTest, TestOK: &ok})
 	}
 
 	if repo.IsGit {
@@ -183,13 +277,17 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 		if diffErr == nil {
 			result.Diff = diff
 			session.SetDiff(diff)
+			r.emit(Event{Type: EventDiff, Diff: diff})
 		}
 	}
 
 	if req.TestCmd != "" && !result.TestOK {
-		return result, fmt.Errorf("agentflow: tests failed")
+		err := fmt.Errorf("agentflow: tests failed")
+		r.emit(Event{Type: EventError, Error: err.Error()})
+		return result, err
 	}
 
+	r.emit(Event{Type: EventDone})
 	return result, nil
 }
 

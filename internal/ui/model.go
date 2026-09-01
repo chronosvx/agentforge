@@ -101,6 +101,26 @@ var commandPaletteCommands = []string{
 	"/exec", "/multi", "/multi-run", "/agents",
 }
 
+// basicCommandPaletteCommands 是默认命令面板/帮助中优先展示的基础命令。
+// 高级命令仍可通过 Tab 展开或手动输入，避免一开始就淹没新手。
+var basicCommandPaletteCommands = []string{
+	"/help", "/new", "/sessions", "/search", "/find",
+	"/diff", "/todos", "/tools", "/skills",
+	"/context", "/cost", "/right", "/split",
+	"/exec", "/agent", "/agent-new", "/multi", "/multi-run", "/agents",
+	"/model", "/rename", "/delete", "/export", "/close", "/memory",
+}
+
+// isBasicCommand 判断命令是否属于默认基础命令集合。
+func isBasicCommand(cmd string) bool {
+	for _, basic := range basicCommandPaletteCommands {
+		if basic == cmd {
+			return true
+		}
+	}
+	return false
+}
+
 // Model 是 Bubble Tea 的根模型。
 type Model struct {
 	cfg        *config.Config
@@ -139,6 +159,12 @@ type Model struct {
 	commandPaletteQuery    string
 	commandPaletteCursor   int
 	commandPaletteFiltered []string
+	showAllCommands        bool
+
+	helpOpen   bool
+	helpCursor int
+
+	panelFocused bool
 
 	searchResults []search.Result
 	searchCursor  int
@@ -561,7 +587,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.auditEvent("session.switch", map[string]any{"sessionId": msg.id})
 		m.channelID = ""
 		m.events = nil
-		m.panel = panelNone
+		m.closePanel()
 		m.err = nil
 		m.status = "switching to " + msg.id
 		m.messages = nil
@@ -625,8 +651,62 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if !skipInputUpdate {
+			key := msg.String()
+
+			// 帮助面板打开时，优先处理帮助内按键。
+			if m.helpOpen {
+				if m.handleHelpKey(key) {
+					return m, tea.Batch(cmds...)
+				}
+				// Ctrl+C 仍可停止生成/退出；其它普通按键不进入输入框，避免误操作。
+				if key == "ctrl+c" {
+					m.closeHelp()
+				} else {
+					return m, tea.Batch(cmds...)
+				}
+			}
+
+			// 全局快捷键：Ctrl+/ 总是打开帮助；? 仅在输入框为空时打开帮助。
+			if key == "ctrl+/" || key == "ctrl+_" || key == "ctrl+?" || (key == "?" && m.input.Value() == "") {
+				m.openHelp()
+				return m, tea.Batch(cmds...)
+			}
+
+			// Esc：优先处理面板内子状态（如 Diff 逐文件确认、Skill 详情），
+			// 然后退出面板聚焦，最后关闭面板；帮助面板已在上面处理。
+			if key == "esc" {
+				if m.panelFocused {
+					if m.panel == panelDiff && m.pendingApply {
+						m.handleDiffKey("esc")
+						return m, tea.Batch(cmds...)
+					}
+					if m.panel == panelSkills && m.skillDetail {
+						m.handleSkillKey("esc")
+						return m, tea.Batch(cmds...)
+					}
+					m.panelFocused = false
+					m.status = "panel focus: input"
+					return m, tea.Batch(cmds...)
+				}
+				if m.panel != panelNone {
+					m.closePanel()
+					return m, tea.Batch(cmds...)
+				}
+			}
+
+			// Tab：在面板/右侧栏/分屏存在时切换“输入聚焦/面板聚焦”。
+			if key == "tab" && (m.panel != panelNone || m.rightPanel || m.splitEnabled) {
+				m.panelFocused = !m.panelFocused
+				if m.panelFocused {
+					m.status = "panel focus: panel (Tab 返回输入, Esc 关闭)"
+				} else {
+					m.status = "panel focus: input"
+				}
+				return m, tea.Batch(cmds...)
+			}
+
 			// Ctrl+←/→ 切换会话 Tab。
-			switch msg.String() {
+			switch key {
 			case "ctrl+right":
 				if len(m.tabs) > 0 {
 					next := (m.tabIndex + 1) % len(m.tabs)
@@ -637,7 +717,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.tabIndex = next
 					}
 				}
-				break
 			case "ctrl+left":
 				if len(m.tabs) > 0 {
 					prev := (m.tabIndex - 1 + len(m.tabs)) % len(m.tabs)
@@ -648,98 +727,102 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.tabIndex = prev
 					}
 				}
-				break
 			}
-			// 右侧 Overview 面板内按数字打开对应详情面板。
-			if m.rightPanel {
-				if m.handleRightPanelKey(msg.String()) {
-					break
-				}
-			}
-			// 双会话并排视图内切换右侧会话。
-			if m.splitEnabled {
-				if msg.String() == "s" && m.splitSessionID != "" && m.splitSessionID != m.sessionID {
-					cmds = append(cmds, switchSessionCmd(m.splitSessionID))
-					break
-				}
-				if m.handleSplitKey(msg.String()) {
-					break
-				}
-			}
-			// Diff Review 面板内的键盘操作：j/k 移动，a 接受，r 拒绝。
-			if m.panel == panelDiff {
-				if m.handleDiffKey(msg.String()) {
-					break
-				}
-			}
-			// Skills 面板内的键盘操作：j/k 选择，space 切换，Enter 查看详情。
-			if m.panel == panelSkills {
-				if m.handleSkillKey(msg.String()) {
-					break
-				}
-			}
-			// Agent 审批面板内的键盘操作：j/k 选择，a 审批，r 拒绝，e 执行，t 测试通过。
-			if m.panel == panelAgent {
-				if m.handleAgentKey(msg.String()) {
-					break
-				}
-			}
-			// MCP 工具列表面板 j/k 移动。
-			if m.panel == panelMCP {
-				switch msg.String() {
-				case "j", "down":
-					if m.mcpCursor < len(m.mcpTools)-1 {
-						m.mcpCursor++
+
+			// 只有面板聚焦时才启用面板快捷键；否则普通字符进入输入框。
+			if m.panelFocused {
+				// 右侧 Overview 面板内按数字打开对应详情面板。
+				if m.rightPanel {
+					if m.handleRightPanelKey(key) {
+						return m, tea.Batch(cmds...)
 					}
-					break
-				case "k", "up":
-					if m.mcpCursor > 0 {
-						m.mcpCursor--
+				}
+				// 双会话并排视图内切换右侧会话。
+				if m.splitEnabled {
+					if key == "s" && m.splitSessionID != "" && m.splitSessionID != m.sessionID {
+						cmds = append(cmds, switchSessionCmd(m.splitSessionID))
+						return m, tea.Batch(cmds...)
 					}
-					break
+					if m.handleSplitKey(key) {
+						return m, tea.Batch(cmds...)
+					}
+				}
+				// Diff Review 面板内的键盘操作：j/k 移动，a 接受，r 拒绝。
+				if m.panel == panelDiff {
+					if m.handleDiffKey(key) {
+						return m, tea.Batch(cmds...)
+					}
+				}
+				// Skills 面板内的键盘操作：j/k 选择，space 切换，Enter 查看详情。
+				if m.panel == panelSkills {
+					if m.handleSkillKey(key) {
+						return m, tea.Batch(cmds...)
+					}
+				}
+				// Agent 审批面板内的键盘操作：j/k 选择，a 审批，r 拒绝，e 执行，t 测试通过。
+				if m.panel == panelAgent {
+					if m.handleAgentKey(key) {
+						return m, tea.Batch(cmds...)
+					}
+				}
+				// MCP 工具列表面板 j/k 移动。
+				if m.panel == panelMCP {
+					switch key {
+					case "j", "down":
+						if m.mcpCursor < len(m.mcpTools)-1 {
+							m.mcpCursor++
+						}
+						return m, tea.Batch(cmds...)
+					case "k", "up":
+						if m.mcpCursor > 0 {
+							m.mcpCursor--
+						}
+						return m, tea.Batch(cmds...)
+					}
+				}
+				// 搜索结果面板 j/k 移动。
+				if m.panel == panelSearch {
+					switch key {
+					case "j", "down":
+						if m.searchCursor < len(m.searchResults)-1 {
+							m.searchCursor++
+						}
+						return m, tea.Batch(cmds...)
+					case "k", "up":
+						if m.searchCursor > 0 {
+							m.searchCursor--
+						}
+						return m, tea.Batch(cmds...)
+					}
+				}
+				// 插件面板 j/k 移动。
+				if m.panel == panelPlugins {
+					switch key {
+					case "j", "down":
+						if m.pluginCursor < len(m.plugins)-1 {
+							m.pluginCursor++
+						}
+						return m, tea.Batch(cmds...)
+					case "k", "up":
+						if m.pluginCursor > 0 {
+							m.pluginCursor--
+						}
+						return m, tea.Batch(cmds...)
+					}
+				}
+				// 在会话面板中按数字键切换本地会话。
+				if m.panel == panelSessions {
+					if idx, ok := digitIndex(key); ok && idx >= 0 && idx < len(m.sessions) {
+						target := m.sessions[idx].ID
+						if target != m.sessionID {
+							cmds = append(cmds, switchSessionCmd(target))
+						}
+						return m, tea.Batch(cmds...)
+					}
 				}
 			}
-			// 搜索结果面板 j/k 移动。
-			if m.panel == panelSearch {
-				switch msg.String() {
-				case "j", "down":
-					if m.searchCursor < len(m.searchResults)-1 {
-						m.searchCursor++
-					}
-					break
-				case "k", "up":
-					if m.searchCursor > 0 {
-						m.searchCursor--
-					}
-					break
-				}
-			}
-			// 插件面板 j/k 移动。
-			if m.panel == panelPlugins {
-				switch msg.String() {
-				case "j", "down":
-					if m.pluginCursor < len(m.plugins)-1 {
-						m.pluginCursor++
-					}
-					break
-				case "k", "up":
-					if m.pluginCursor > 0 {
-						m.pluginCursor--
-					}
-					break
-				}
-			}
-			// 在会话面板中按数字键切换本地会话。
-			if m.panel == panelSessions {
-				if idx, ok := digitIndex(msg.String()); ok && idx >= 0 && idx < len(m.sessions) {
-					target := m.sessions[idx].ID
-					if target != m.sessionID {
-						cmds = append(cmds, switchSessionCmd(target))
-					}
-					break
-				}
-			}
-			switch msg.String() {
+
+			switch key {
 			case "ctrl+p":
 				m.openCommandPalette()
 				return m, tea.Batch(cmds...)
@@ -752,20 +835,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							cmds = append(cmds, cancelCmd(canceller, m.channelID))
 						}
 					}
-					break
+				} else {
+					if m.eventCancel != nil {
+						m.eventCancel()
+						m.eventCancel = nil
+					}
+					m.flushPersist()
+					return m, tea.Quit
 				}
-				if m.eventCancel != nil {
-					m.eventCancel()
-					m.eventCancel = nil
-				}
-				m.flushPersist()
-				return m, tea.Quit
 			case "ctrl+e":
 				cmds = append(cmds, m.editCmd())
-				break
 			case "ctrl+j":
 				m.input.InsertString("\n")
-				break
 			case "enter":
 				text := strings.TrimSpace(m.input.Value())
 				if text == "" {
@@ -819,7 +900,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.remoteSkills = nil
 		m.skillCursor = 0
 		m.skillDetail = false
-		m.panel = panelNone
+		m.closePanel()
 		m.err = nil
 		m.status = "new session..."
 		cmds = append(cmds, m.connectCmd())
@@ -932,15 +1013,19 @@ func (m Model) View() string {
 	}
 	statusLine := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("8")).
-		Render(fmt.Sprintf(" %s%s | session: %s | channel: %s%s | /context /cost /diff /todos /tools /skills /sessions /right /split /help ", statusPrefix, statusText, sanitizeTerminalText(m.sessionID), sanitizeTerminalText(m.channelID), updateText))
+		Render(fmt.Sprintf(" %s%s | session: %s | channel: %s%s | %s ", statusPrefix, statusText, sanitizeTerminalText(m.sessionID), sanitizeTerminalText(m.channelID), updateText, i18n.T("status.hint_help")))
 
 	panelView := m.renderPanel()
+	helpView := ""
+	if m.helpOpen {
+		helpView = m.renderHelpPanel()
+	}
 	paletteView := ""
 	if m.commandPaletteOpen {
 		paletteView = m.renderCommandPalette()
 	}
 	tabBar := m.renderTabs()
-	main := style.Render(tabBar + "\n" + m.viewport.View() + panelView + paletteView + "\n" + inputView + "\n" + statusLine)
+	main := style.Render(tabBar + "\n" + m.viewport.View() + panelView + helpView + paletteView + "\n" + inputView + "\n" + statusLine)
 
 	parts := make([]string, 0, 3)
 	if sidebar := m.renderSidebar(); sidebar != "" {

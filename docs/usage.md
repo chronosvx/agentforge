@@ -808,7 +808,7 @@ DSH_TELEMETRY=1 agentforge
 | `/multi <提示词1,提示词2,...>` 或 `/multi [{"id":"a","prompt":"...","deps":["b"]}]` | 准备多 Agent 任务（JSON 形式支持依赖）并打开面板；用 `/multi-run` 执行 |
 | `/multi-run` | 执行 `/multi` 已准备的多 Agent 任务 |
 | `/agents` | 打开/关闭多 Agent 面板 |
-| `/help` | 帮助 |
+| `/help` | 打开帮助面板（也可在输入框为空时按 `?`，或按 `Ctrl+/`） |
 | `/close` | 关闭当前 Channel |
 
 ### 插件命令
@@ -875,10 +875,15 @@ ts.AddPublicKey(entry.Signature.PublicKeyID, publisherPublicKeyPEM)
 plugin.InstallFromMarket(ctx, index, "my-plugin", destDir, ts)
 ```
 
-### 鼠标与性能
+### UI 交互与性能
 
 - 启动时启用 Bubble Tea 鼠标支持（`tea.WithMouseCellMotion`）。
 - 鼠标滚轮可以滚动聊天消息 viewport；命令面板、Diff/Search/Plugins/Skills 等列表面板中滚轮会移动光标。
+- 帮助面板：输入框为空时按 `?`，或按 `Ctrl+/` 打开；按 `Esc` 关闭。`/help` 现在会打开该帮助面板，而不再只是显示状态栏提示。
+- 面板默认非模态：打开面板不会抢占输入焦点。按 `Tab` 可在“输入框 / 面板”之间切换焦点；`Esc` 先返回输入框焦点，再关闭面板。
+- 命令面板（`Ctrl+P`）默认只展示基础命令以降低学习成本；在面板中按 `Tab` 可切换“基础命令 / 全部命令”。支持 `↑/↓`、`Home/End`、`Ctrl+N` 导航。
+- 状态栏已精简：不再列出大量斜杠命令，改为紧凑帮助提示 `? / Ctrl+/ help`。
+- 输入框占位提示现在会提到 `Ctrl+P`（命令）和 `Ctrl+/`（帮助）。
 - 本地会话持久化采用节流策略：状态变化后最多每 500ms 写盘一次，退出程序前会强制把未落盘数据写入 `<data-dir>/sessions/`。
 - 状态栏使用 `•` / `⚠` / `✖` 符号前缀区分普通/告警/错误，避免只依赖颜色传达状态。
 - 终端宽度小于 80 列时，自动隐藏右侧 Overview 面板和双会话分屏，优先保证主聊天区可读。
@@ -915,7 +920,11 @@ manifest URL 可以是 HTTP(S) 地址，也可以是本地文件路径。执行�
 | `Ctrl+C` | 第一次停止生成，第二次退出 |
 | `Ctrl+J` | 输入框内换行（多行输入） |
 | `Ctrl+E` | 用 `$EDITOR` 编辑当前输入 |
-| `Ctrl+P` | 打开命令面板 / 模糊搜索 |
+| `Ctrl+P` | 打开命令面板 / 模糊搜索（默认只显示基础命令；`Tab` 切换基础/全部） |
+| `?`（输入框为空时）或 `Ctrl+/` | 打开帮助面板 |
+| `Esc` | 关闭帮助/面板；先返回输入框焦点 |
+| `Tab` | 在输入框与当前面板之间切换焦点 |
+| `↑` / `↓`、`Home` / `End`、`Ctrl+N` | 在命令面板中导航 |
 | 鼠标滚轮 | 滚动聊天消息；命令面板/列表面板中移动光标 |
 | `Ctrl+←` / `Ctrl+→` | 切换会话 Tab |
 | 右侧面板 `1`~`5` | 打开 Context / Cost / Diff / Todos / Skills |

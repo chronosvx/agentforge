@@ -39,6 +39,15 @@ agentforge config
 agentforge --mock
 ```
 
+## 🖥️ 桌面 GUI（预览）
+
+> 桌面 GUI 是 Flutter 编写的 macOS 客户端（首个目标平台），用于可视化操作 AgentForge。
+
+- 启动本地 daemon：`agentforge serve`
+- 运行 GUI：`cd gui && flutter run -d macos`，或直接构建：`make gui-macos`
+- 当前包含：Agent 运行面板、记忆浏览、时间线/会话浏览、连接状态
+- 后续目标：Windows / Linux / 移动端
+
 ## 文档
 
 - 零基础快速开始： [docs/QUICKSTART.md](docs/QUICKSTART.md)
@@ -109,6 +118,9 @@ UI 体验细节：
 
 - 已加载插件的 `Manifest.Commands` 会自动注册进命令面板（`/plugin:<插件名>:<命令>`，无冲突时也可用 `/<命令>`）
 - 启用鼠标支持：滚轮可滚动聊天 viewport，命令面板/列表面板中滚轮移动光标
+- 帮助：`?`（输入框为空时）或 `Ctrl+/` 打开帮助面板，`Esc` 关闭
+- 面板默认不抢占输入；打开面板后按 `Tab` 在“输入框 / 面板”之间切换焦点，`Esc` 返回输入或关闭面板
+- 命令面板默认只展示基础命令，按 `Tab` 可切换为全部命令；支持 `↑/↓`、`Home/End`、`Ctrl+N`
 - 本地会话持久化节流为最多每 500ms 写一次，退出前强制落盘
 - 状态栏使用 `•` / `⚠` / `✖` 等符号前缀，不只依赖颜色
 - 窄屏（宽度 < 80）自动隐藏右侧 Overview 面板和分屏

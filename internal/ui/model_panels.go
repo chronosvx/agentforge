@@ -187,6 +187,16 @@ func (m *Model) accentColor() string {
 	return "6"
 }
 
+// closePanel 关闭当前底部面板，并清理面板内子状态。
+func (m *Model) closePanel() {
+	m.panel = panelNone
+	m.panelFocused = false
+	m.pendingApply = false
+	m.skillDetail = false
+	m.execOpen = false
+	m.status = "panel closed"
+}
+
 func (m *Model) handleRightPanelKey(key string) bool {
 	switch key {
 	case "1":

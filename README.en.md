@@ -39,6 +39,15 @@ agentforge config
 agentforge --mock
 ```
 
+## 🖥️ Desktop GUI (Preview)
+
+> The desktop GUI is a Flutter macOS desktop client (first target platform) for interacting with AgentForge visually.
+
+- Start the local daemon: `agentforge serve`
+- Run the GUI: `cd gui && flutter run -d macos`, or build with `make gui-macos`
+- Currently includes: Agent run panel, memory browsing, timeline/session browsing, and connection status
+- Future targets: Windows / Linux / mobile
+
 ## Documentation
 
 - Quickstart (no experience needed): [docs/QUICKSTART.en.md](docs/QUICKSTART.en.md)
@@ -98,7 +107,12 @@ The runnable v0.3.0 feature set can connect to the real DSH Web API:
 UI details:
 
 - Commands declared by loaded plugin `Manifest.Commands` are registered in the command palette (`/plugin:<plugin>:<command>`, or `/<command>` when there is no conflict).
-- Mouse support: the wheel scrolls the chat viewport; in the command palette/list panels it moves the cursor.
+- Mouse support is enabled via Bubble Tea `WithMouseCellMotion`: the wheel scrolls the chat viewport and list panels (command palette, Diff, Search, Plugins, Skills, etc.).
+- Help panel: press `?` (when the input box is empty) or `Ctrl+/` to open it; press `Esc` to close it. `/help` now opens this help panel instead of only setting a status-line message.
+- Panels are non-modal by default: opening a panel does not steal typing focus. Press `Tab` to toggle focus between the input box and the panel; `Esc` first returns to input focus, then closes the panel.
+- Command palette (`Ctrl+P`) now defaults to showing only basic commands to reduce learning cost. Press `Tab` in the palette to toggle between basic and all commands. It also supports `↑/↓`, `Home/End`, and `Ctrl+N` for navigation.
+- The status bar is simplified: instead of listing many slash commands, it shows a compact help hint (`? / Ctrl+/ help`).
+- The input placeholder now mentions `Ctrl+P` for commands and `Ctrl+/` for help.
 - Local session persistence is throttled to at most one write per 500 ms and is flushed before exit.
 - The status bar uses symbol prefixes such as `•` / `⚠` / `✖`, not colors alone.
 - On narrow screens (width < 80), the right Overview panel and split view are hidden automatically.
@@ -198,7 +212,7 @@ Type a command in the input box and press Enter (it is not sent to the agent):
 | `/multi <prompt1,prompt2,...>` or `/multi [{"id":"a","prompt":"...","deps":["b"]}]` | Prepare multi-agent tasks (JSON form supports dependencies) and open the panel; use `/multi-run` to execute |
 | `/multi-run` | Execute the multi-agent tasks prepared by `/multi` |
 | `/agents` | Toggle the multi-agent panel |
-| `/help` | Show available commands |
+| `/help` | Open the help panel (also available via `?` when the input is empty, or `Ctrl+/`) |
 | `/close` | Close the current Channel |
 
 If a loaded plugin declares `commands`, the command palette and input box also support those plugin commands, e.g. `/plugin:demo:status` or `/status` when there is no conflict.
@@ -245,7 +259,11 @@ Shortcuts:
 | `Ctrl+C` | First stop generation, second exit |
 | `Ctrl+J` | Newline in the input box (multiline input) |
 | `Ctrl+E` | Edit the current input with `$EDITOR` |
-| `Ctrl+P` | Open the command palette / fuzzy search |
+| `Ctrl+P` | Open the command palette / fuzzy search (defaults to basic commands; `Tab` toggles basic/all) |
+| `?` (input empty) or `Ctrl+/` | Open the help panel |
+| `Esc` | Close help/panel; first returns focus to the input box |
+| `Tab` | Toggle focus between the input box and the active panel |
+| `↑` / `↓`, `Home` / `End`, `Ctrl+N` | Navigate in the command palette |
 | Mouse wheel | Scroll chat messages; move cursor in command palette/list panels |
 | `Ctrl+←` | Switch to previous session tab |
 | `Ctrl+→` | Switch to next session tab |

@@ -1,4 +1,4 @@
-.PHONY: run build test tidy install install-local smoke check-release release package publish-plugin fuzz security-scan sbom acceptance
+.PHONY: run build test tidy install install-local smoke check-release release package publish-plugin gui-macos release-gui gui-clean fuzz security-scan sbom acceptance
 
 run:
 	go run ./cmd/agentforge
@@ -35,6 +35,15 @@ release:
 
 package:
 	./scripts/package-release.sh
+
+gui-macos:
+	./scripts/build-gui-macos.sh
+
+release-gui: gui-macos
+	./scripts/release-gui.sh
+
+gui-clean:
+	rm -rf gui/build dist/agentforge_gui.app dist/agentforge_gui-*.dmg dist/gui-checksums.txt
 
 publish-plugin:
 	./scripts/publish-plugin.sh "$(NAME)" "$(VERSION)" "$(URL)" "$(KEY)" "$(INDEX)"

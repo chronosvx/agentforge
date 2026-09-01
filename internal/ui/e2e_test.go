@@ -188,6 +188,9 @@ func TestProgramDiffApplyConfirm(t *testing.T) {
 		time.Sleep(80 * time.Millisecond)
 		typeCommand(p, "/diff")
 		time.Sleep(50 * time.Millisecond)
+		// 面板默认不抢占输入，Tab 进入面板聚焦后再操作。
+		p.Send(tea.KeyMsg{Type: tea.KeyTab})
+		time.Sleep(30 * time.Millisecond)
 		sendSingleKey(p, "g")
 		time.Sleep(50 * time.Millisecond)
 		sendQuit(p)

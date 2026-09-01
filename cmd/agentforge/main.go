@@ -79,6 +79,8 @@ func run() error {
 			return runAudit(args[1:])
 		case "mcp":
 			return runMCP(args[1:])
+		case "serve":
+			return runServe(args[1:])
 		case "init":
 			return runInit(args[1:])
 		case "config":
@@ -167,7 +169,7 @@ func run() error {
 		audit(auditLog, event, fields)
 	})
 	model.SetUpdateAvailable(latest)
-	program := tea.NewProgram(model)
+	program := tea.NewProgram(model, tea.WithMouseCellMotion())
 	final, err := program.Run()
 	if m, ok := final.(ui.Model); ok {
 		m.FlushPersist()
@@ -234,6 +236,7 @@ Commands:
   restore      Restore the local data directory from a zip file
   audit        Show recent local audit log entries
   mcp          Connect to an MCP server and list/call tools
+  serve        Start the local daemon API for the desktop GUI
   init         Create a local configuration file
   config       Show effective configuration (secrets masked)
 
