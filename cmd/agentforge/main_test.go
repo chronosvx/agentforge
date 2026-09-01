@@ -610,3 +610,52 @@ func TestRunInitWritesConfig(t *testing.T) {
 		t.Fatalf("config does not contain api-url: %s", data)
 	}
 }
+
+func TestRunMCPListTools(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		id := req["id"]
+		method, _ := req["method"].(string)
+		resp := map[string]any{"jsonrpc": "2.0", "id": id}
+		switch method {
+		case "initialize":
+			resp["result"] = map[string]any{
+				"protocolVersion": "2024-11-05",
+				"capabilities":    map[string]any{},
+				"serverInfo":      map[string]any{"name": "mock", "version": "1.0"},
+			}
+		case "tools/list":
+			resp["result"] = map[string]any{
+				"tools": []any{
+					map[string]any{"name": "echo", "description": "Echo tool", "inputSchema": map[string]any{}},
+				},
+			}
+		default:
+			resp["error"] = map[string]any{"code": -32601, "message": "method not found"}
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() error: %v", err)
+	}
+	os.Stdout = w
+	runErr := runMCP([]string{"--url", srv.URL, "--timeout", "5s"})
+	_ = w.Close()
+	os.Stdout = old
+	out, _ := io.ReadAll(r)
+
+	if runErr != nil {
+		t.Fatalf("runMCP error: %v", runErr)
+	}
+	if !strings.Contains(string(out), "MCP connected") || !strings.Contains(string(out), "echo") {
+		t.Fatalf("unexpected MCP output:\n%s", out)
+	}
+}
