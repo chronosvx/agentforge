@@ -9,9 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/chronosvx/agentforge/internal/config"
 )
 
-// runInit 实现 `agentforge init`：生成用户配置文件。
+// runInit 实现 `agentforge init`：生成或更新用户配置文件。
+//
+// 如果已有配置文件，init 会读取并保留已有配置，只覆盖本次显式提供的字段。
 func runInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	provider := fs.String("provider", "", "直连厂商名：deepseek/openai/moonshot/qwen/ollama")
@@ -34,30 +38,53 @@ func runInit(args []string) error {
 		return err
 	}
 
+	path := filepath.Join(dir, "config.json")
 	cfg := map[string]any{}
+
+	// 复用已有配置：先读取旧值，再覆盖本次显式提供的字段。
+	if existing, err := config.LoadFile(path); err == nil && len(existing) > 0 {
+		for k, v := range existing {
+			cfg[k] = v
+		}
+	}
+
+	provided := false
 	if *provider != "" {
 		cfg["provider"] = *provider
+		provided = true
 	}
 	if *model != "" {
 		cfg["model"] = *model
+		provided = true
 	}
 	if *baseURL != "" {
 		cfg["provider-base-url"] = *baseURL
+		provided = true
 	}
 	if *apiURL != "" {
 		cfg["api-url"] = *apiURL
+		provided = true
 	}
 	if *apiToken != "" {
 		cfg["api-token"] = *apiToken
+		provided = true
 	}
 	if *keychain {
 		cfg["keychain"] = true
+		provided = true
 	}
 	if *encryptSessions {
 		cfg["encrypt-sessions"] = true
+		provided = true
 	}
 
-	// Provider Key：优先从 --provider-key-stdin 语义读取，这里简单从 stdin 读取。
+	// 没有提供新配置且已有配置时，不覆盖，直接提示。
+	if !provided && len(cfg) > 0 {
+		fmt.Printf("using existing config at %s\n", path)
+		return nil
+	}
+
+	// Provider Key：仅当本次显式指定 provider 且未使用 keychain 时提示输入。
 	if *provider != "" && !*keychain {
 		fmt.Print("Enter provider key (input will be visible): ")
 		reader := bufio.NewReader(os.Stdin)
@@ -75,7 +102,6 @@ func runInit(args []string) error {
 		return errors.New("init: nothing to configure; use --provider/--api-url etc")
 	}
 
-	path := filepath.Join(dir, "config.json")
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
