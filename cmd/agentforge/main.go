@@ -79,6 +79,8 @@ func run() error {
 			return runAudit(args[1:])
 		case "mcp":
 			return runMCP(args[1:])
+		case "init":
+			return runInit(args[1:])
 		}
 	}
 
@@ -230,6 +232,7 @@ Commands:
   restore      Restore the local data directory from a zip file
   audit        Show recent local audit log entries
   mcp          Connect to an MCP server and list/call tools
+  init         Create a local configuration file
 
 Flags:
   --mock              Run with the built-in mock backend
