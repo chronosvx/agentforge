@@ -9,6 +9,20 @@
 不会编程？也能直接运行。  
 👉 从 [docs/QUICKSTART.md](docs/QUICKSTART.md) 开始：下载、安装、启动、连接 AI，一步步照着做即可。
 
+```bash
+# 安装后先自检环境
+agentforge doctor
+
+# 生成配置（Provider / API URL / Keychain / 加密会话）
+agentforge init --provider deepseek --model deepseek-chat
+
+# 查看当前配置（密钥自动打码）
+agentforge config
+
+# 无后端快速体验
+agentforge --mock
+```
+
 ## 截图
 
 > 截图/动图占位：将终端截图或录屏放入 `docs/screenshots/` 后，在此替换为实际图片链接。
