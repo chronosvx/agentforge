@@ -1,5 +1,3 @@
-//go:build !linux || !cgo || !libsecret
-
 package secret
 
 import (
@@ -9,8 +7,8 @@ import (
 
 // linuxSet 通过 secret-tool 保存凭据。
 //
-// TODO: 在具备 Linux + libsecret 开发环境的机器上接入 libsecret 原生 API，
-// 避免密钥出现在 secret-tool 命令行参数中。
+// 说明：Linux 当前使用 secret-tool CLI 作为 Keychain 后端。
+// 实验性 libsecret CGo 后端因 API 兼容问题未纳入生产代码。
 func (k *KeychainStore) linuxSet(service, key, value string) error {
 	out, err := k.runner("secret-tool", "store", "--label="+service+"/"+key, service, key, value)
 	if err != nil {

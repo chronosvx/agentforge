@@ -95,7 +95,7 @@ agentforge 的定位收敛为：
 - [x] P2 部分：`audit`、`config`、`mcp` CLI、`agent/multiagent --json`、`--dry-run`、`make acceptance`、`acceptance-git/multiagent/mcp` 验收脚本
 - [x] P2 真实验收：本地 MCP Server、真实 Git Patch-to-PR（临时仓库+PR+清理）、多 Agent 执行
 - [ ] P2 剩余：TUI 人工体验测试
-- [ ] P2 延期：Linux libsecret 原生后端在真实 Linux 上验证（用户暂缓）
+- [ ] P2 延期：Linux libsecret 原生后端已移除；Linux Keychain 使用 `secret-tool` CLI 回退
 
 ## 新增重点
 

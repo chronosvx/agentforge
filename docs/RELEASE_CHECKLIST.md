@@ -52,8 +52,4 @@ This document is the production-readiness checklist for agentforge.
   ```
 
 ### Deferred / skipped
-- [ ] Linux libsecret native backend (deferred by user):
-  ```bash
-  sudo apt install libsecret-1-dev libglib2.0-dev
-  go test -tags libsecret ./internal/secret/...
-  ```
+- [ ] Linux libsecret native backend: not included. Linux Keychain uses `secret-tool` CLI fallback. Experimental CGo backend was removed because it did not compile reliably against libsecret.
