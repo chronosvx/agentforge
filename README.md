@@ -1,13 +1,28 @@
-# agentforge
+# ⚡ AgentForge
+
+> 跑在终端里的 AI 开发代理：理解项目、执行任务、审 Diff、安全回滚。
 
 [中文](README.md) | [English](README.en.md)
 
-一个从零开始、用 Go + Bubble Tea 构建的个人 DSH TUI 客户端。
+![Go](https://img.shields.io/badge/Go-1.24-blue)
+![CI](https://img.shields.io/github/actions/workflow/status/chronosvx/agentforge/ci.yml?branch=main)
+![Release](https://img.shields.io/github/v/release/chronosvx/agentforge)
+![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)
 
-## 🚀 零基础快速开始
+## ✨ 核心亮点
 
-不会编程？也能直接运行。  
-👉 从 [docs/QUICKSTART.md](docs/QUICKSTART.md) 开始：下载、安装、启动、连接 AI，一步步照着做即可。
+- 🤖 **Agent 主流程**：自然语言 → 计划 → 执行 → Diff → 测试 → 提交/回滚
+- 🖥️ **终端 TUI**：Bubble Tea 高性能渲染，多会话 / 分屏 / 命令面板
+- 🔌 **MCP 生态**：MCP Client + 权限中心
+- 🧠 **Repo Mode**：真正理解你的项目
+- 🔐 **安全优先**：加密会话、Keychain、审计、脱敏
+- ⚡ **多 Agent**：并行执行 + 依赖树可视化
+
+## 📸 截图
+
+![AgentForge Demo](docs/screenshots/demo.png)
+
+## 🚀 快速开始
 
 ```bash
 # 安装后先自检环境
@@ -22,11 +37,6 @@ agentforge config
 # 无后端快速体验
 agentforge --mock
 ```
-
-## 截图
-
-> 截图/动图占位：将终端截图或录屏放入 `docs/screenshots/` 后，在此替换为实际图片链接。
-> 建议提供：主聊天界面、Diff Review、双会话并排、命令面板。
 
 ## 文档
 

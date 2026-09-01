@@ -1,10 +1,28 @@
-# agentforge
+# ⚡ AgentForge
+
+> A terminal AI development agent: understand projects, execute tasks, review diffs, and roll back safely.
 
 [中文](README.md) | [English](README.en.md)
 
-A personal DSH TUI client built from scratch with Go and Bubble Tea.
+![Go](https://img.shields.io/badge/Go-1.24-blue)
+![CI](https://img.shields.io/github/actions/workflow/status/chronosvx/agentforge/ci.yml?branch=main)
+![Release](https://img.shields.io/github/v/release/chronosvx/agentforge)
+![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)
 
-## Quickstart
+## ✨ Highlights
+
+- 🤖 **Agent main flow**: natural language → plan → execute → diff → test → commit/rollback
+- 🖥️ **Terminal TUI**: high-performance Bubble Tea rendering, multi-session / split view / command palette
+- 🔌 **MCP ecosystem**: MCP client + permission center
+- 🧠 **Repo Mode**: truly understand your project
+- 🔐 **Security first**: encrypted sessions, keychain, audit, redaction
+- ⚡ **Multi-agent**: parallel execution + dependency tree visualization
+
+## 📸 Screenshot
+
+![AgentForge Demo](docs/screenshots/demo.png)
+
+## 🚀 Quickstart
 
 ```bash
 # Check the environment
@@ -19,11 +37,6 @@ agentforge config
 # Try the TUI without a backend
 agentforge --mock
 ```
-
-## Screenshots
-
-> Placeholder: add terminal screenshots or recordings under `docs/screenshots/` and replace this section with real image links.
-> Suggested: main chat interface, Diff Review, split-session view, command palette.
 
 ## Documentation
 
