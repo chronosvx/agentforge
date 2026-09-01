@@ -35,6 +35,7 @@ func runDoctor(args []string) error {
 	ok = report("DSH CLI (dsh)", checkExecutable("dsh"), ok)
 	ok = report("Git", checkExecutable("git"), ok)
 	ok = report("GitHub CLI (gh)", checkExecutable("gh"), ok)
+	ok = report("GitHub auth (gh auth status)", checkGitHubAuth(), ok)
 	ok = report("Keychain backend", checkKeychainBackend(), ok)
 	ok = report("Data directory", checkDataDir(expanded), ok)
 	reportInfo("Provider env (AGENTFORGE_PROVIDER)", os.Getenv("AGENTFORGE_PROVIDER"))
@@ -84,6 +85,18 @@ func checkExecutable(name string) error {
 		return fmt.Errorf("%s not found in PATH", name)
 	}
 	fmt.Printf("       found at %s\n", path)
+	return nil
+}
+
+func checkGitHubAuth() error {
+	out, err := exec.Command("gh", "auth", "status").CombinedOutput()
+	if err != nil {
+		text := strings.TrimSpace(string(out))
+		if text == "" {
+			return err
+		}
+		return fmt.Errorf("%v: %s", err, text)
+	}
 	return nil
 }
 
