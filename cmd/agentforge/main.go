@@ -81,6 +81,8 @@ func run() error {
 			return runMCP(args[1:])
 		case "init":
 			return runInit(args[1:])
+		case "config":
+			return runConfig(args[1:])
 		}
 	}
 
@@ -233,6 +235,7 @@ Commands:
   audit        Show recent local audit log entries
   mcp          Connect to an MCP server and list/call tools
   init         Create a local configuration file
+  config       Show effective configuration (secrets masked)
 
 Flags:
   --mock              Run with the built-in mock backend
