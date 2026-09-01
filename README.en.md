@@ -4,6 +4,22 @@
 
 A personal DSH TUI client built from scratch with Go and Bubble Tea.
 
+## Quickstart
+
+```bash
+# Check the environment
+agentforge doctor
+
+# Generate a config file
+agentforge init --provider deepseek --model deepseek-chat
+
+# Show effective config (secrets masked)
+agentforge config
+
+# Try the TUI without a backend
+agentforge --mock
+```
+
 ## Screenshots
 
 > Placeholder: add terminal screenshots or recordings under `docs/screenshots/` and replace this section with real image links.
@@ -94,6 +110,16 @@ agentforge agent --prompt "edit README.md hello" --yes --commit --push --pr --pr
 
 # Run multiple agent tasks in parallel
 agentforge multiagent --tasks "run echo a,run echo b,run echo c" --yes
+
+# JSON output for scripting/CI
+agentforge agent --prompt "run echo hi" --yes --json
+agentforge multiagent --tasks "run echo a,run echo b" --yes --json
+
+# Dry run: preview the plan without executing anything
+agentforge agent --prompt "add --version to main.go" --planner llm --dry-run
+
+# Connect to an MCP server
+agentforge mcp --url http://127.0.0.1:8000/mcp
 
 # Real LLM acceptance script (API key required)
 AGENTFORGE_PROVIDER=deepseek \
