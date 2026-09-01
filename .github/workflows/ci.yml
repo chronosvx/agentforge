@@ -43,6 +43,20 @@ jobs:
           go run ./cmd/agentforge agent --prompt "run echo hello" --yes --test "" --workdir /tmp >/tmp/agent.out
           grep -q "Output: hello" /tmp/agent.out
 
+  linux-libsecret:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Install libsecret development packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsecret-1-dev libglib2.0-dev
+      - name: Test libsecret native backend
+        run: go test -tags libsecret ./internal/secret/...
+
   release:
     if: startsWith(github.ref, 'refs/tags/')
     needs: test
