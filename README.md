@@ -225,6 +225,10 @@ agentforge multiagent --tasks "run echo a,run echo b,run echo c" --yes
 agentforge agent --prompt "run echo hi" --yes --json
 agentforge multiagent --tasks "run echo a,run echo b" --yes --json
 
+# 安全预览：只生成计划，不实际执行
+agentforge agent --prompt "add --version to main.go" --planner llm --dry-run
+agentforge multiagent --tasks "run echo a,run echo b" --dry-run
+
 # 连接 MCP Server（真实 MCP 验收）
 agentforge mcp --url http://127.0.0.1:8000/mcp
 
