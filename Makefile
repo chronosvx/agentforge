@@ -1,4 +1,4 @@
-.PHONY: run build test tidy install install-local smoke check-release release package publish-plugin fuzz security-scan sbom
+.PHONY: run build test tidy install install-local smoke check-release release package publish-plugin fuzz security-scan sbom acceptance
 
 run:
 	go run ./cmd/agentforge
@@ -20,6 +20,12 @@ tidy:
 
 smoke:
 	./scripts/smoke-real.sh
+
+acceptance:
+	./scripts/acceptance-multiagent.sh
+	./scripts/acceptance-git.sh
+	@if [ -n "$$AGENTFORGE_PROVIDER" ]; then ./scripts/acceptance-llm.sh; fi
+	@if [ -n "$$MCP_URL" ]; then ./scripts/acceptance-mcp.sh; fi
 
 check-release:
 	./scripts/check-release.sh
