@@ -142,3 +142,25 @@ func TestRunnerTestFailureReturnsError(t *testing.T) {
 		t.Fatal("expected TestOK to be false")
 	}
 }
+
+func TestRunnerDryRunDoesNotExecute(t *testing.T) {
+	fe := &fakeExecutor{}
+	r := NewRunner(NewStaticPlanner(), fe)
+	dir := t.TempDir()
+	res, err := r.Run(context.Background(), Request{
+		Prompt:      "run echo hello",
+		WorkDir:     dir,
+		AutoApprove: true,
+		TestCmd:     "false",
+		DryRun:      true,
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if len(fe.calls) != 0 {
+		t.Fatalf("expected no executor calls in dry-run, got %d", len(fe.calls))
+	}
+	if len(res.Session.Actions) != 1 || res.Session.Actions[0].Status != agent.ActionStatusTested {
+		t.Fatalf("unexpected dry-run actions: %+v", res.Session.Actions)
+	}
+}

@@ -33,6 +33,7 @@ type Request struct {
 	AutoApprove bool
 	Timeout     time.Duration
 	TestCmd     string
+	DryRun      bool
 }
 
 // Result 是一次 Agent 主流程运行的输出。
@@ -128,6 +129,14 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 			}
 		}
 
+		if req.DryRun {
+			output := "dry-run: " + a.Description
+			if err := session.MarkExecuted(a.ID, output); err != nil {
+				return result, fmt.Errorf("agentflow: mark executed: %w", err)
+			}
+			continue
+		}
+
 		output, execErr := r.executeAction(ctx, *a, abs, req.Timeout)
 		if execErr != nil {
 			_ = session.MarkExecuted(a.ID, output+"\n"+execErr.Error())
@@ -140,7 +149,7 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 
 	// 有动作执行成功且配置了测试命令时，统一跑一次测试。
 	// 未配置测试命令时，视为测试通过，让闭环进入 Diff 评审阶段。
-	if len(actions) > 0 && req.TestCmd != "" {
+	if len(actions) > 0 && req.TestCmd != "" && !req.DryRun {
 		cmd := req.TestCmd
 		res, testErr := r.Exec.Run(ctx, executor.Spec{
 			Command: "sh",

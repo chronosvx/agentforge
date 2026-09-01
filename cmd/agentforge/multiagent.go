@@ -24,6 +24,7 @@ func runMultiAgent(args []string) error {
 	testCmd := fs.String("test", "", "测试命令；默认不测试")
 	timeout := fs.Duration("timeout", 5*time.Minute, "单条命令超时")
 	jsonOut := fs.Bool("json", false, "以 JSON 格式输出结果")
+	dryRun := fs.Bool("dry-run", false, "只生成计划并预览，不实际执行动作")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -54,6 +55,7 @@ func runMultiAgent(args []string) error {
 			AutoApprove: *autoApprove,
 			Timeout:     *timeout,
 			TestCmd:     task.TestCmd,
+			DryRun:      *dryRun,
 		})
 		if err != nil {
 			return "", err

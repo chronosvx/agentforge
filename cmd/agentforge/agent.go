@@ -69,6 +69,7 @@ func runAgent(args []string) error {
 	prTitle := fs.String("pr-title", "", "PR 标题（默认使用提交信息）")
 	prBody := fs.String("pr-body", "", "PR 描述")
 	jsonOut := fs.Bool("json", false, "以 JSON 格式输出结果")
+	dryRun := fs.Bool("dry-run", false, "只生成计划并预览，不实际执行动作")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -155,6 +156,7 @@ func runAgent(args []string) error {
 		AutoApprove: *autoApprove,
 		Timeout:     *timeout,
 		TestCmd:     *testCmd,
+		DryRun:      *dryRun,
 	})
 	if err != nil {
 		if res != nil && !res.TestOK && (*doCommit || *doPush || *doPR) {
