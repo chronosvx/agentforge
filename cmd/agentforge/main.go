@@ -35,7 +35,7 @@ func main() {
 	}
 }
 
-const version = "0.4.0"
+var version = "0.6.1"
 
 func run() error {
 	args := os.Args[1:]
