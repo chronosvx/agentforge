@@ -122,6 +122,78 @@ func TestSendCmdTo(t *testing.T) {
 	}
 }
 
+func TestEventMsgDeltaAppendsToAssistantMessage(t *testing.T) {
+	m := Model{
+		channelID: "s1",
+		messages:  []client.Message{{Role: "user", Content: "hi"}},
+	}
+
+	// 第一条 delta 应新建 assistant 消息并只做本地追加。
+	res, _ := m.Update(eventMsg{
+		channelID: "s1",
+		event: client.Event{
+			Operation: "delta",
+			ChannelID: "s1",
+			Version:   1,
+			Value:     map[string]any{"type": "text", "content": "Hel"},
+		},
+	})
+	got := res.(Model)
+	if len(got.messages) != 2 || got.messages[1].Role != "assistant" || got.messages[1].Content != "Hel" {
+		t.Fatalf("after first delta messages = %#v, want user + assistant %q", got.messages, "Hel")
+	}
+	if !got.dirty {
+		t.Fatal("expected dirty after delta append")
+	}
+
+	// 第二条 delta 应追加到最后一条 assistant 消息。
+	res, _ = got.Update(eventMsg{
+		channelID: "s1",
+		event: client.Event{
+			Operation: "delta",
+			ChannelID: "s1",
+			Version:   2,
+			Value:     map[string]any{"type": "text", "content": "lo"},
+		},
+	})
+	got = res.(Model)
+	if len(got.messages) != 2 || got.messages[1].Content != "Hello" {
+		t.Fatalf("after second delta messages = %#v, want assistant %q", got.messages, "Hello")
+	}
+	if !got.dirty {
+		t.Fatal("expected dirty after second delta append")
+	}
+}
+
+func TestEventMsgDoneSyncsFinalState(t *testing.T) {
+	m := Model{
+		channelID: "s1",
+		messages: []client.Message{
+			{Role: "user", Content: "hi"},
+			{Role: "assistant", Content: "Hel"},
+		},
+	}
+
+	res, _ := m.Update(eventMsg{
+		channelID: "s1",
+		event: client.Event{
+			Operation: "done",
+			ChannelID: "s1",
+			Version:   3,
+			State: map[string]any{
+				"messages": []any{
+					map[string]any{"role": "user", "content": "hi"},
+					map[string]any{"role": "assistant", "content": "Hello"},
+				},
+			},
+		},
+	})
+	got := res.(Model)
+	if len(got.messages) != 2 || got.messages[1].Content != "Hello" {
+		t.Fatalf("after done messages = %#v, want final assistant %q", got.messages, "Hello")
+	}
+}
+
 func TestHandleCommandTogglesContextPanel(t *testing.T) {
 	m := Model{}
 	if m.panel != panelNone {
@@ -1298,13 +1370,67 @@ func TestPluginPanelToggle(t *testing.T) {
 	}
 }
 
+func writeDemoPluginDir(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, "plugins"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pluginDir := filepath.Join(dir, "plugins")
+	manifest := `{"name":"demo","version":"1.0.0","description":"Demo plugin","commands":["hello"],"executable":"./demo.sh","permissions":{"allowExec":true}}`
+	if err := os.WriteFile(filepath.Join(pluginDir, "demo.dsh-plugin.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, "demo.sh"), []byte("#!/bin/sh\necho \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPluginLoadingRespectsConfigAndExplicitEnable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("external plugin shell test skipped on windows")
+	}
+	dir := t.TempDir()
+	writeDemoPluginDir(t, dir)
+
+	disabledCfg := &config.Config{DataDir: dir, Lang: "zh", Workspace: "ws", PluginsEnabled: false}
+	m := New(disabledCfg, &fakeBackend{}, nil)
+	if len(m.plugins) != 0 {
+		t.Fatalf("expected no plugins auto-loaded when disabled, got %d", len(m.plugins))
+	}
+	if m.pluginsEnabled {
+		t.Fatal("expected pluginsEnabled false when disabled")
+	}
+
+	m.handleCommand("/plugin enable")
+	if len(m.plugins) != 1 {
+		t.Fatalf("expected /plugin enable to load 1 plugin, got %d", len(m.plugins))
+	}
+	if !m.pluginsEnabled {
+		t.Fatal("expected pluginsEnabled true after /plugin enable")
+	}
+
+	m.handleCommand("/plugin disable")
+	if len(m.plugins) != 0 || m.pluginsEnabled {
+		t.Fatalf("expected /plugin disable to clear plugins, got %d enabled=%v", len(m.plugins), m.pluginsEnabled)
+	}
+
+	enabledCfg := &config.Config{DataDir: dir, Lang: "zh", Workspace: "ws", PluginsEnabled: true}
+	m2 := New(enabledCfg, &fakeBackend{}, nil)
+	if len(m2.plugins) != 1 {
+		t.Fatalf("expected config-enabled plugins to auto-load, got %d", len(m2.plugins))
+	}
+	if !m2.pluginsEnabled {
+		t.Fatal("expected pluginsEnabled true when config enabled")
+	}
+}
+
 func writeDemoPlugin(t *testing.T) *plugin.Manager {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("external plugin shell test skipped on windows")
 	}
 	dir := t.TempDir()
-	manifest := `{"name":"demo","version":"1.0.0","description":"Demo plugin","commands":["hello","status"],"executable":"./demo.sh"}`
+	manifest := `{"name":"demo","version":"1.0.0","description":"Demo plugin","commands":["hello","status"],"executable":"./demo.sh","permissions":{"allowExec":true}}`
 	if err := os.WriteFile(filepath.Join(dir, "demo.dsh-plugin.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}

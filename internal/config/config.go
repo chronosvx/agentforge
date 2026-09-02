@@ -53,6 +53,7 @@ type Config struct {
 	NoAudit           bool    // 为 true 时禁用审计日志
 	NoColor           bool    // 为 true 时禁用彩色输出
 	AllowInsecureHTTP bool    // 为 true 时允许非 loopback 明文 HTTP/WS 连接（高危）
+	PluginsEnabled    bool    // 为 true 时自动加载本地插件目录（默认关闭）
 	User              string  // 模拟企业用户身份（可选）
 	Roles             string  // 模拟用户角色，逗号分隔（可选）
 }
@@ -94,6 +95,7 @@ func Parse(args []string) (*Config, error) {
 	fs.BoolVar(&cfg.NoAudit, "no-audit", false, "禁用审计日志（默认开启）")
 	fs.BoolVar(&cfg.NoColor, "no-color", false, "禁用彩色输出（默认 false）")
 	fs.BoolVar(&cfg.AllowInsecureHTTP, "allow-insecure-http", false, "允许非 loopback 明文 HTTP/WS 连接（高危，默认拒绝携带凭据的明文远程连接）")
+	fs.BoolVar(&cfg.PluginsEnabled, "plugins-enabled", false, "自动加载并启用本地插件目录（默认关闭）")
 	fs.StringVar(&cfg.User, "user", "", "模拟企业用户身份（可选）")
 	fs.StringVar(&cfg.Roles, "roles", "", "模拟用户角色，逗号分隔（可选）")
 

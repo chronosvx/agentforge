@@ -32,6 +32,10 @@ const (
 // ErrMarketEntryNotFound 表示市场索引中找不到指定插件。
 var ErrMarketEntryNotFound = errors.New("plugin: market entry not found")
 
+// ErrMarketEntryIntegrityRequired 表示市场条目缺少可用于默认安装策略的完整性信息
+// （没有 SHA256，也没有可验证的签名），安装应被拒绝。
+var ErrMarketEntryIntegrityRequired = errors.New("plugin: market entry has neither SHA256 nor signature")
+
 // MarketIndex 是插件仓库/市场索引中的一个条目。
 type MarketIndex struct {
 	Name        string    `json:"name"`
@@ -112,9 +116,19 @@ func FetchMarketIndex(ctx context.Context, url string) ([]MarketIndex, error) {
 
 // InstallFromMarket 从市场索引中按名称安装一个插件到 destDir。
 // 插件会被安装到 destDir/<name> 子目录；支持 HTTP(S) 插件包（zip/tar/tar.gz/原始可执行文件）
-// 或 git 仓库。SHA256 非空时会校验下载文件或克隆后的文件树。
-// 如果传入非空 TrustStore，安装前还会校验条目签名。
+// 或 git 仓库。默认要求条目提供可校验的 SHA256；若传入 TrustStore，也可凭可信签名安装。
+// SHA256 非空时会校验下载文件或克隆后的文件树；传入 TrustStore 时还会强制校验条目签名。
 func InstallFromMarket(ctx context.Context, index []MarketIndex, name, destDir string, trustStores ...*TrustStore) (Plugin, error) {
+	return installFromMarket(ctx, index, name, destDir, false, trustStores...)
+}
+
+// InstallFromMarketAllowUnsigned 与 InstallFromMarket 类似，但允许安装既没有 SHA256
+// 也没有签名的市场条目。该函数仅应在用户显式选择不校验完整性时使用。
+func InstallFromMarketAllowUnsigned(ctx context.Context, index []MarketIndex, name, destDir string, trustStores ...*TrustStore) (Plugin, error) {
+	return installFromMarket(ctx, index, name, destDir, true, trustStores...)
+}
+
+func installFromMarket(ctx context.Context, index []MarketIndex, name, destDir string, allowUnsigned bool, trustStores ...*TrustStore) (Plugin, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -128,7 +142,7 @@ func InstallFromMarket(ctx context.Context, index []MarketIndex, name, destDir s
 	}
 	for _, entry := range index {
 		if strings.TrimSpace(entry.Name) == name {
-			return installMarketEntry(ctx, entry, destDir, trustStore)
+			return installMarketEntryWithPolicy(ctx, entry, destDir, trustStore, !allowUnsigned)
 		}
 	}
 	return Plugin{}, fmt.Errorf("%w: %s", ErrMarketEntryNotFound, name)
@@ -142,7 +156,12 @@ func manifestDataForSignature(entry MarketIndex) ([]byte, error) {
 	return json.Marshal(unsigned)
 }
 
+// installMarketEntry 保留旧内部签名：默认要求完整性校验。
 func installMarketEntry(ctx context.Context, entry MarketIndex, destDir string, trustStore *TrustStore) (Plugin, error) {
+	return installMarketEntryWithPolicy(ctx, entry, destDir, trustStore, true)
+}
+
+func installMarketEntryWithPolicy(ctx context.Context, entry MarketIndex, destDir string, trustStore *TrustStore, requireIntegrity bool) (Plugin, error) {
 	name := strings.TrimSpace(entry.Name)
 	url := strings.TrimSpace(entry.URL)
 	if name == "" {
@@ -157,13 +176,21 @@ func installMarketEntry(ctx context.Context, entry MarketIndex, destDir string, 
 	if !isSafePluginName(name) {
 		return Plugin{}, fmt.Errorf("plugin: invalid plugin name %q", name)
 	}
-	if trustStore != nil && trustStore.Len() > 0 {
+	// 只要调用方传入了 TrustStore，签名校验就是强制的，即使条目同时带有 SHA256。
+	// 这里先走 TrustStore，以保留原有“缺少签名”等验签错误语义。
+	if trustStore != nil {
 		manifestData, err := manifestDataForSignature(entry)
 		if err != nil {
 			return Plugin{}, fmt.Errorf("plugin: marshal manifest for signature %q: %w", name, err)
 		}
 		if err := trustStore.VerifyWithTrust(manifestData, entry.Signature); err != nil {
 			return Plugin{}, fmt.Errorf("plugin: signature verification failed for %q: %w", name, err)
+		}
+	} else if requireIntegrity {
+		// 默认安装策略拒绝没有 SHA256 的条目；没有 TrustStore 时签名无法被实际校验，
+		// 因此仅有签名字段也不能视为已校验。
+		if strings.TrimSpace(entry.SHA256) == "" {
+			return Plugin{}, fmt.Errorf("%w: %s", ErrMarketEntryIntegrityRequired, name)
 		}
 	}
 

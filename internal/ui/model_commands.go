@@ -9,6 +9,7 @@ import (
 	"github.com/chronosvx/agentforge/internal/i18n"
 	"github.com/chronosvx/agentforge/internal/mcp"
 	"github.com/chronosvx/agentforge/internal/multiagent"
+	"github.com/chronosvx/agentforge/internal/plugin"
 	"github.com/chronosvx/agentforge/internal/session"
 	"github.com/chronosvx/agentforge/internal/skill"
 	"os"
@@ -245,6 +246,23 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 		}
 		m.skillDetail = false
 	case "/plugin":
+		if len(fields) > 1 {
+			switch strings.ToLower(fields[1]) {
+			case "enable", "load", "reload":
+				m.enablePlugins()
+			case "disable", "unload":
+				m.disablePlugins()
+			case "list":
+				if m.panel == panelPlugins {
+					m.closePanel()
+				} else {
+					m.panel = panelPlugins
+				}
+			default:
+				m.status = "usage: /plugin [enable|disable|list]"
+			}
+			return nil
+		}
 		if m.panel == panelPlugins {
 			m.closePanel()
 		} else {
@@ -697,6 +715,41 @@ func (m *Model) statusCost() string {
 		return fmt.Sprint(v)
 	}
 	return "-"
+}
+
+// enablePlugins 显式加载并启用本地插件目录（/plugin enable）。
+// 每次都会重建 Manager，避免重复 LoadDir 报“插件已存在”。
+func (m *Model) enablePlugins() {
+	if m.cfg == nil {
+		m.status = "plugin enable error: config unavailable"
+		return
+	}
+	pluginsDir := filepath.Join(m.cfg.DataDir, "plugins")
+	mgr := plugin.NewManager(m.cfg.Workspace)
+	if err := mgr.LoadDir(pluginsDir); err != nil {
+		m.status = "plugin enable error: " + err.Error()
+		return
+	}
+	m.pluginManager = mgr
+	m.plugins = mgr.List()
+	m.pluginsEnabled = true
+	m.pluginCursor = 0
+	m.status = fmt.Sprintf("plugins enabled: %d loaded", len(m.plugins))
+}
+
+// disablePlugins 清空已加载插件并关闭插件面板（/plugin disable）。
+func (m *Model) disablePlugins() {
+	m.pluginManager = plugin.NewManager("")
+	if m.cfg != nil {
+		m.pluginManager = plugin.NewManager(m.cfg.Workspace)
+	}
+	m.plugins = nil
+	m.pluginsEnabled = false
+	m.pluginCursor = 0
+	if m.panel == panelPlugins {
+		m.closePanel()
+	}
+	m.status = "plugins disabled"
 }
 
 func (m *Model) pluginCommand(name string, args []string) tea.Cmd {

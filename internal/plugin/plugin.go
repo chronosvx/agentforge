@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -51,11 +50,12 @@ var ErrTimeout = errors.New("plugin: command timed out")
 
 // Manifest 描述一个插件的元信息。
 type Manifest struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Commands    []string `json:"commands,omitempty"`
-	Hooks       []string `json:"hooks,omitempty"`
+	Name        string      `json:"name"`
+	Version     string      `json:"version"`
+	Description string      `json:"description"`
+	Commands    []string    `json:"commands,omitempty"`
+	Hooks       []string    `json:"hooks,omitempty"`
+	Permissions Permissions `json:"permissions,omitempty"`
 }
 
 // Plugin 是一个已加载的插件。
@@ -350,20 +350,8 @@ func (m *Manager) addPlugin(p *Plugin) {
 }
 
 func (m *Manager) runExternal(p *Plugin, args []string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), m.timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, p.Executable, args...)
-	cmd.Dir = m.workDir
-	out, err := cmd.CombinedOutput()
-
-	if ctx.Err() == context.DeadlineExceeded {
-		return strings.TrimSpace(string(out)), fmt.Errorf("%w: command %q timed out after %s: %w", ErrTimeout, p.Manifest.Name, m.timeout, context.DeadlineExceeded)
-	}
-	if err != nil {
-		return strings.TrimSpace(string(out)), fmt.Errorf("plugin: run %q: %w", p.Manifest.Name, err)
-	}
-	return strings.TrimSpace(string(out)), nil
+	// 外部插件统一经过受限沙箱执行；未在 manifest 中声明 AllowExec 时默认拒绝。
+	return RunSandboxed(context.Background(), p.Executable, args, m.workDir, m.timeout, p.Manifest.Permissions)
 }
 
 func findManifests(dir string) ([]string, error) {
@@ -406,14 +394,23 @@ func loadManifest(path string) (*Plugin, error) {
 		return nil, fmt.Errorf("plugin: manifest %s missing name", path)
 	}
 
+	manifestDir := filepath.Dir(path)
 	execPath := strings.TrimSpace(fm.Executable)
 	if execPath == "" {
 		base := strings.TrimSuffix(filepath.Base(path), ManifestSuffix)
-		execPath = filepath.Join(filepath.Dir(path), base)
-	} else if !filepath.IsAbs(execPath) {
-		execPath = filepath.Join(filepath.Dir(path), execPath)
+		execPath = filepath.Join(manifestDir, base)
+	} else {
+		if filepath.IsAbs(execPath) {
+			return nil, fmt.Errorf("plugin: manifest %s executable must be a relative path inside the plugin directory", path)
+		}
+		execPath = filepath.Join(manifestDir, execPath)
 	}
 	execPath = filepath.Clean(execPath)
+
+	rel, err := filepath.Rel(manifestDir, execPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("plugin: manifest %s executable escapes plugin directory: %s", path, fm.Executable)
+	}
 
 	if _, err := os.Stat(execPath); err != nil {
 		return nil, fmt.Errorf("plugin: manifest %s executable %s: %w", path, execPath, err)

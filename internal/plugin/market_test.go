@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -277,5 +278,53 @@ func TestInstallFromMarketNotFound(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("expected not found error, got %v", err)
+	}
+}
+
+func TestInstallFromMarketRejectsNoSHAAndNoSignature(t *testing.T) {
+	payload := []byte("#!/bin/sh\necho unsigned\n")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(payload)
+	}))
+	defer srv.Close()
+
+	index := []MarketIndex{{
+		Name: "nosha",
+		URL:  srv.URL + "/nosha",
+	}}
+	dest := t.TempDir()
+	_, err := InstallFromMarket(context.Background(), index, "nosha", dest)
+	if err == nil {
+		t.Fatal("expected install to reject entry without SHA256 or signature")
+	}
+	if !errors.Is(err, ErrMarketEntryIntegrityRequired) {
+		t.Fatalf("expected ErrMarketEntryIntegrityRequired, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dest, "nosha")); !os.IsNotExist(statErr) {
+		t.Fatalf("plugin directory should not be created after integrity rejection: %v", statErr)
+	}
+}
+
+func TestInstallFromMarketAllowUnsignedInstallsWithoutIntegrity(t *testing.T) {
+	payload := []byte("#!/bin/sh\necho unsigned\n")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(payload)
+	}))
+	defer srv.Close()
+
+	index := []MarketIndex{{
+		Name: "unsigned-ok",
+		URL:  srv.URL + "/unsigned-ok",
+	}}
+	dest := t.TempDir()
+	p, err := InstallFromMarketAllowUnsigned(context.Background(), index, "unsigned-ok", dest)
+	if err != nil {
+		t.Fatalf("InstallFromMarketAllowUnsigned: %v", err)
+	}
+	if p.Manifest.Name != "unsigned-ok" {
+		t.Fatalf("unexpected installed manifest: %#v", p.Manifest)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "unsigned-ok", "unsigned-ok.dsh-plugin.json")); err != nil {
+		t.Fatalf("installed manifest missing: %v", err)
 	}
 }

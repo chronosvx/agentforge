@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -38,14 +40,18 @@ func runMarket(args []string) error {
 		}
 		return marketSearch(rest[1], rest[2])
 	case "install":
-		if len(rest) != 3 {
-			return errors.New("market: usage: market install <index-url> <name>")
+		allowUnsigned, yes, installArgs, err := parseMarketInstallArgs(rest)
+		if err != nil {
+			return err
+		}
+		if len(installArgs) != 3 {
+			return errors.New("market: usage: market install [--allow-unsigned] [--yes] <index-url> <name>")
 		}
 		dir, err := resolveMarketDataDir(dataDir)
 		if err != nil {
 			return err
 		}
-		return marketInstall(rest[1], rest[2], dir)
+		return marketInstallWithOptions(installArgs[1], installArgs[2], dir, allowUnsigned, yes)
 	case "list":
 		if len(rest) != 1 {
 			return errors.New("market: usage: market list")
@@ -103,16 +109,48 @@ func parseMarketArgs(args []string) (dataDir string, rest []string, help bool, e
 	return dataDir, rest, false, nil
 }
 
+// parseMarketInstallArgs 从 market install 的参数中提取 --allow-unsigned/--yes，
+// 并返回保留子命令和位置参数的新列表。
+func parseMarketInstallArgs(args []string) (allowUnsigned, yes bool, install []string, err error) {
+	if len(args) == 0 {
+		return false, false, nil, errors.New("market: install requires an index URL and plugin name")
+	}
+	install = []string{args[0]}
+	for _, arg := range args[1:] {
+		switch arg {
+		case "--allow-unsigned":
+			allowUnsigned = true
+		case "--yes", "-y":
+			yes = true
+		case "--allow-unsigned=true":
+			allowUnsigned = true
+		case "--allow-unsigned=false":
+			allowUnsigned = false
+		case "--yes=true":
+			yes = true
+		case "--yes=false":
+			yes = false
+		default:
+			install = append(install, arg)
+		}
+	}
+	return allowUnsigned, yes, install, nil
+}
+
 func printMarketUsage() {
 	fmt.Print(`Usage:
   agentforge market [--data-dir DIR] search <index-url> <query>
-  agentforge market [--data-dir DIR] install <index-url> <name>
+  agentforge market [--data-dir DIR] install [--allow-unsigned] [--yes] <index-url> <name>
   agentforge market [--data-dir DIR] list
 
 Commands:
   search   Fetch the market index and fuzzy match plugin name/description
   install  Install a plugin from the market into <data-dir>/plugins
   list     List locally installed plugins
+
+Install options:
+  --allow-unsigned  Allow installing entries with neither SHA256 nor signature
+  --yes             Skip the permission confirmation prompt
 `)
 }
 
@@ -140,13 +178,56 @@ func marketSearch(indexURL, query string) error {
 }
 
 // marketInstall 从市场索引安装指定插件到 <dataDir>/plugins。
+// 保留旧签名，默认不允许无签名/无哈希安装且要求交互确认。
 func marketInstall(indexURL, name, dataDir string) error {
+	return marketInstallWithOptions(indexURL, name, dataDir, false, false)
+}
+
+// marketInstallWithOptions 是 market install 的实现，支持显式 --allow-unsigned 与 --yes。
+func marketInstallWithOptions(indexURL, name, dataDir string, allowUnsigned, yes bool) error {
 	index, err := plugin.FetchMarketIndex(context.Background(), indexURL)
 	if err != nil {
 		return fmt.Errorf("market: fetch index: %w", err)
 	}
 
-	installed, err := plugin.InstallFromMarket(context.Background(), index, strings.TrimSpace(name), filepath.Join(dataDir, "plugins"))
+	trimmedName := strings.TrimSpace(name)
+	var entry *plugin.MarketIndex
+	for i := range index {
+		if strings.TrimSpace(index[i].Name) == trimmedName {
+			entry = &index[i]
+			break
+		}
+	}
+	if entry == nil {
+		return fmt.Errorf("market: install %q: %w", name, plugin.ErrMarketEntryNotFound)
+	}
+
+	if !allowUnsigned && strings.TrimSpace(entry.SHA256) == "" {
+		if entry.Signature.IsZero() {
+			return fmt.Errorf("market: install %q: entry has neither SHA256 nor signature; pass --allow-unsigned to install without integrity verification", name)
+		}
+		return fmt.Errorf("market: install %q: entry has no SHA256 and no trust store is configured to verify its signature; pass --allow-unsigned to install without integrity verification", name)
+	}
+
+	destDir := filepath.Join(dataDir, "plugins")
+
+	if !yes {
+		inspected, err := inspectMarketPlugin(index, trimmedName, allowUnsigned)
+		if err != nil {
+			return fmt.Errorf("market: inspect %q: %w", name, err)
+		}
+		fmt.Printf("Plugin %s %s\n", inspected.Manifest.Name, inspected.Manifest.Version)
+		if inspected.Manifest.Description != "" {
+			fmt.Printf("  %s\n", inspected.Manifest.Description)
+		}
+		fmt.Printf("Permissions:\n%s\n", formatPermissions(inspected.Manifest.Permissions))
+		if !confirmMarketInstall() {
+			fmt.Println("Install cancelled.")
+			return nil
+		}
+	}
+
+	installed, err := installMarketPlugin(index, trimmedName, destDir, allowUnsigned)
 	if err != nil {
 		return fmt.Errorf("market: install %q: %w", name, err)
 	}
@@ -155,8 +236,40 @@ func marketInstall(indexURL, name, dataDir string) error {
 	if installed.Manifest.Description != "" {
 		fmt.Printf("  %s\n", installed.Manifest.Description)
 	}
-	fmt.Printf("  location: %s\n", filepath.Join(dataDir, "plugins", installed.Manifest.Name))
+	fmt.Printf("  location: %s\n", filepath.Join(destDir, installed.Manifest.Name))
 	return nil
+}
+
+func inspectMarketPlugin(index []plugin.MarketIndex, name string, allowUnsigned bool) (plugin.Plugin, error) {
+	tmp, err := os.MkdirTemp("", "agentforge-market-inspect-*")
+	if err != nil {
+		return plugin.Plugin{}, err
+	}
+	defer os.RemoveAll(tmp)
+
+	if allowUnsigned {
+		return plugin.InstallFromMarketAllowUnsigned(context.Background(), index, name, tmp)
+	}
+	return plugin.InstallFromMarket(context.Background(), index, name, tmp)
+}
+
+func installMarketPlugin(index []plugin.MarketIndex, name, destDir string, allowUnsigned bool) (plugin.Plugin, error) {
+	if allowUnsigned {
+		return plugin.InstallFromMarketAllowUnsigned(context.Background(), index, name, destDir)
+	}
+	return plugin.InstallFromMarket(context.Background(), index, name, destDir)
+}
+
+func confirmMarketInstall() bool {
+	fmt.Print("Proceed with installation? [y/N] ")
+	reader := bufio.NewReader(os.Stdin)
+	answer, _ := reader.ReadString('\n')
+	answer = strings.ToLower(strings.TrimSpace(answer))
+	return answer == "y" || answer == "yes"
+}
+
+func formatPermissions(p plugin.Permissions) string {
+	return fmt.Sprintf("  AllowNetwork:     %t\n  AllowExec:        %t\n  AllowFileWrite:   %t\n  AllowReadAnyPath: %t", p.AllowNetwork, p.AllowExec, p.AllowFileWrite, p.AllowReadAnyPath)
 }
 
 // marketList 列出 <dataDir>/plugins 下已安装的外部插件。

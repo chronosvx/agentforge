@@ -145,22 +145,25 @@ func TestBackendOpenSubscribeInvoke(t *testing.T) {
 		t.Fatal("timed out waiting for tool/result event")
 	}
 
-	// 读取两个 text-delta 事件，确认流式内容被累积为 "hello world"。
-	var lastContent string
-	for i := 0; i < 2; i++ {
+	// 读取两个 text-delta 事件，确认 DSH Backend 也发送增量而非整份 state。
+	wantDeltas := []string{"hello ", "world"}
+	for i, want := range wantDeltas {
 		select {
 		case ev := <-events:
-			msgs, _ := ev.State["messages"].([]any)
-			if len(msgs) == 0 {
-				t.Fatalf("expected assistant message in event state, got %#v", ev.State)
+			if ev.Operation != "delta" {
+				t.Fatalf("event %d Operation = %q, want %q", i, ev.Operation, "delta")
 			}
-			lastContent, _ = msgs[len(msgs)-1].(map[string]any)["content"].(string)
+			if ev.State != nil {
+				t.Fatalf("event %d unexpectedly contains full state", i)
+			}
+			value, _ := ev.Value.(map[string]any)
+			got, _ := value["content"].(string)
+			if got != want {
+				t.Fatalf("event %d content = %q, want %q", i, got, want)
+			}
 		case <-time.After(2 * time.Second):
 			t.Fatal("timed out waiting for event")
 		}
-	}
-	if lastContent != "hello world" {
-		t.Fatalf("unexpected streamed content: %q", lastContent)
 	}
 
 	if _, err := backend.Invoke(ctx, snap.ChannelID, "chat", []any{"hello"}); err != nil {

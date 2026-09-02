@@ -68,6 +68,10 @@ var projectRestrictedConfigKeys = map[string]bool{
 	"no-audit":            true,
 	// 该开关用于显式放行非 loopback 明文连接；不能让项目配置文件替用户放行。
 	"allow-insecure-http": true,
+	// 插件可执行外部代码，不能让项目配置文件替用户自动启用。
+	"plugins-enabled": true,
+	"plugin-enabled":  true,
+	"plugins":         true,
 }
 
 // isProjectConfigPath 报告 path 是否为项目级 .agentforge.json。
@@ -166,6 +170,16 @@ func applyConfig(cfg *Config, kv map[string]string, setFlags map[string]bool) {
 	}
 	if !set("allow-insecure-http") && kv["allow-insecure-http"] != "" {
 		cfg.AllowInsecureHTTP, _ = strconv.ParseBool(kv["allow-insecure-http"])
+	}
+	if !set("plugins-enabled") {
+		switch {
+		case kv["plugins-enabled"] != "":
+			cfg.PluginsEnabled, _ = strconv.ParseBool(kv["plugins-enabled"])
+		case kv["plugin-enabled"] != "":
+			cfg.PluginsEnabled, _ = strconv.ParseBool(kv["plugin-enabled"])
+		case kv["plugins"] != "":
+			cfg.PluginsEnabled, _ = strconv.ParseBool(kv["plugins"])
+		}
 	}
 	if !set("user") && kv["user"] != "" {
 		cfg.User = kv["user"]

@@ -2,6 +2,7 @@
 package plugin
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -13,10 +14,35 @@ var ErrPermissionDenied = errors.New("plugin: permission denied")
 // Permissions 描述一个插件进程允许执行的操作集合。
 // 所有字段默认均为 false，即默认拒绝。
 type Permissions struct {
-	AllowNetwork     bool // 是否允许网络访问
-	AllowExec        bool // 是否允许执行外部进程
-	AllowFileWrite   bool // 是否允许写文件
-	AllowReadAnyPath bool // 是否允许读取任意路径
+	AllowNetwork     bool `json:"allowNetwork,omitempty"`
+	AllowExec        bool `json:"allowExec,omitempty"`
+	AllowFileWrite   bool `json:"allowFileWrite,omitempty"`
+	AllowReadAnyPath bool `json:"allowReadAnyPath,omitempty"`
+}
+
+// UnmarshalJSON 兼容 lowerCamel 与 Go 大写字段名两种 manifest 写法。
+func (p *Permissions) UnmarshalJSON(data []byte) error {
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for key, value := range raw {
+		enabled, ok := value.(bool)
+		if !ok {
+			continue
+		}
+		switch strings.ToLower(key) {
+		case "allownetwork", "allow_network", "network":
+			p.AllowNetwork = enabled
+		case "allowexec", "allow_exec", "exec", "execute":
+			p.AllowExec = enabled
+		case "allowfilewrite", "allow_file_write", "filewrite", "file_write":
+			p.AllowFileWrite = enabled
+		case "allowreadanypath", "allow_read_any_path", "readanypath", "read_any_path":
+			p.AllowReadAnyPath = enabled
+		}
+	}
+	return nil
 }
 
 // CheckPermission 对单个操作 op 做简单权限校验。

@@ -49,3 +49,46 @@ func TestFrameToEventUpdatesLastSeq(t *testing.T) {
 		t.Fatalf("lastSeq should not go backwards, got %d", b.lastSeq)
 	}
 }
+
+func TestFrameToEventTextDeltaReturnsDeltaAndUpdatesState(t *testing.T) {
+	b := NewBackend(New("http://example.invalid"))
+
+	for i, text := range []string{"hello ", "world"} {
+		payload, err := json.Marshal(map[string]any{
+			"type":      "session/event",
+			"sessionId": "s1",
+			"event": map[string]any{
+				"type": "assistant/chunk",
+				"seq":  float64(10 + i),
+				"time": float64(1),
+				"data": map[string]any{
+					"chunk": map[string]any{"type": "text-delta", "text": text},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("marshal payload: %v", err)
+		}
+
+		ev := b.frameToEvent(ServerRequest{Type: "server-request", Payload: payload}, "s1")
+		if ev == nil {
+			t.Fatal("expected event")
+		}
+		if ev.Operation != "delta" {
+			t.Fatalf("event Operation = %q, want %q", ev.Operation, "delta")
+		}
+		if ev.State != nil {
+			t.Fatalf("delta event should not contain full state")
+		}
+		value, _ := ev.Value.(map[string]any)
+		if got, _ := value["content"].(string); got != text {
+			t.Fatalf("event %d content = %q, want %q", i, got, text)
+		}
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.messages) != 1 || b.messages[0].Role != "assistant" || b.messages[0].Content != "hello world" {
+		t.Fatalf("backend internal messages = %#v, want one assistant message %q", b.messages, "hello world")
+	}
+}

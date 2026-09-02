@@ -107,6 +107,20 @@ func writePluginManifest(t *testing.T, dir, name string, m Manifest, execPath st
 	}
 }
 
+// copyTestHelper 把测试用 helper 可执行文件复制到插件目录，并返回可供 manifest 使用的相对路径。
+func copyTestHelper(t *testing.T, dir string) string {
+	t.Helper()
+	data, err := os.ReadFile(helperBin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(dir, "helper")
+	if err := os.WriteFile(dest, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return "helper"
+}
+
 func TestLoadDirListAndRunExternal(t *testing.T) {
 	dir := t.TempDir()
 	writePluginManifest(t, dir, "hello", Manifest{
@@ -115,7 +129,8 @@ func TestLoadDirListAndRunExternal(t *testing.T) {
 		Description: "Say hello",
 		Commands:    []string{"hi", "greet"},
 		Hooks:       []string{"message"},
-	}, helperBin)
+		Permissions: Permissions{AllowExec: true},
+	}, copyTestHelper(t, dir))
 
 	m := NewManager(dir)
 	if err := m.LoadDir(dir); err != nil {
@@ -181,7 +196,8 @@ func TestLoadDirNestedManifest(t *testing.T) {
 		Version:     "0.1.0",
 		Description: "Nested hello",
 		Commands:    []string{"hello"},
-	}, helperBin)
+		Permissions: Permissions{AllowExec: true},
+	}, copyTestHelper(t, pluginDir))
 
 	m := NewManager(root)
 	if err := m.LoadDir(root); err != nil {
@@ -227,6 +243,107 @@ func TestLoadDirResolvesAdjacentExecutable(t *testing.T) {
 	}
 }
 
+func TestLoadDirRejectsAbsoluteExecutable(t *testing.T) {
+	dir := t.TempDir()
+	writePluginManifest(t, dir, "abs", Manifest{
+		Name:        "abs",
+		Version:     "1.0.0",
+		Commands:    []string{"abs"},
+		Permissions: Permissions{AllowExec: true},
+	}, helperBin)
+
+	m := NewManager(dir)
+	err := m.LoadDir(dir)
+	if err == nil {
+		t.Fatal("expected LoadDir to reject absolute executable path")
+	}
+	if !strings.Contains(err.Error(), "must be a relative path") {
+		t.Fatalf("expected relative path error, got %v", err)
+	}
+}
+
+func TestLoadDirRejectsParentExecutableEscape(t *testing.T) {
+	root := t.TempDir()
+	pluginDir := filepath.Join(root, "plugin")
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// 在插件目录外放一个可执行文件，manifest 使用 ../ 试图逃逸。
+	outside := filepath.Join(root, "outside")
+	data, err := os.ReadFile(helperBin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outside, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writePluginManifest(t, pluginDir, "escape", Manifest{
+		Name:        "escape",
+		Version:     "1.0.0",
+		Commands:    []string{"escape"},
+		Permissions: Permissions{AllowExec: true},
+	}, "../outside")
+
+	m := NewManager(pluginDir)
+	err = m.LoadDir(pluginDir)
+	if err == nil {
+		t.Fatal("expected LoadDir to reject parent path escape")
+	}
+	if !strings.Contains(err.Error(), "escapes plugin directory") {
+		t.Fatalf("expected escape error, got %v", err)
+	}
+}
+
+func TestManifestMissingPermissionsDeniedByDefault(t *testing.T) {
+	dir := t.TempDir()
+	copyTestHelper(t, dir)
+	manifest := `{"name":"noperm","version":"1.0.0","description":"No permissions","commands":["noperm"],"executable":"helper"}`
+	if err := os.WriteFile(filepath.Join(dir, "noperm"+ManifestSuffix), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewManager(dir)
+	if err := m.LoadDir(dir); err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	plugins := m.List()
+	if len(plugins) != 1 {
+		t.Fatalf("expected 1 plugin, got %d: %#v", len(plugins), plugins)
+	}
+	if plugins[0].Manifest.Permissions != (Permissions{}) {
+		t.Fatalf("expected default empty permissions, got %#v", plugins[0].Manifest.Permissions)
+	}
+	_, err := m.RunCommand("noperm", nil)
+	if err == nil {
+		t.Fatal("expected RunCommand to be denied without AllowExec")
+	}
+	if !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("expected ErrPermissionDenied, got %v", err)
+	}
+}
+
+func TestManifestPermissionsParsed(t *testing.T) {
+	dir := t.TempDir()
+	copyTestHelper(t, dir)
+	manifest := `{"name":"perm","version":"1.0.0","description":"Perm plugin","commands":["perm"],"executable":"helper","permissions":{"allowExec":true,"allowNetwork":true,"allowFileWrite":true,"allowReadAnyPath":true}}`
+	if err := os.WriteFile(filepath.Join(dir, "perm"+ManifestSuffix), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewManager(dir)
+	if err := m.LoadDir(dir); err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	plugins := m.List()
+	if len(plugins) != 1 {
+		t.Fatalf("expected 1 plugin, got %d: %#v", len(plugins), plugins)
+	}
+	want := Permissions{AllowNetwork: true, AllowExec: true, AllowFileWrite: true, AllowReadAnyPath: true}
+	if plugins[0].Manifest.Permissions != want {
+		t.Fatalf("unexpected permissions: %#v", plugins[0].Manifest.Permissions)
+	}
+}
+
 func TestExternalCommandUsesManagerWorkDir(t *testing.T) {
 	root := t.TempDir()
 	dataDir := filepath.Join(root, "data")
@@ -238,9 +355,10 @@ func TestExternalCommandUsesManagerWorkDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	writePluginManifest(t, pluginDir, "pwd", Manifest{
-		Name:     "pwd",
-		Commands: []string{"pwd"},
-	}, helperBin)
+		Name:        "pwd",
+		Commands:    []string{"pwd"},
+		Permissions: Permissions{AllowExec: true},
+	}, copyTestHelper(t, pluginDir))
 
 	m := NewManager(dataDir)
 	if err := m.LoadDir(pluginDir); err != nil {
@@ -296,7 +414,8 @@ func TestExternalCommandTimeout(t *testing.T) {
 		Version:     "1.0.0",
 		Description: "Slow command",
 		Commands:    []string{"slow"},
-	}, helperBin)
+		Permissions: Permissions{AllowExec: true},
+	}, copyTestHelper(t, dir))
 
 	m := NewManager(dir)
 	m.SetTimeout(100 * time.Millisecond)
@@ -421,7 +540,8 @@ func TestEmitExternalPluginHook(t *testing.T) {
 		Description: "Hooker",
 		Commands:    []string{"hooker"},
 		Hooks:       []string{"on_message", "on_cost"},
-	}, helperBin)
+		Permissions: Permissions{AllowExec: true},
+	}, copyTestHelper(t, dir))
 
 	m := NewManager(dir)
 	if err := m.LoadDir(dir); err != nil {
@@ -474,7 +594,8 @@ func TestEmitExternalPluginHookError(t *testing.T) {
 		Description: "Hooker",
 		Commands:    []string{"hooker"},
 		Hooks:       []string{"on_message"},
-	}, helperBin)
+		Permissions: Permissions{AllowExec: true},
+	}, copyTestHelper(t, dir))
 
 	m := NewManager(dir)
 	if err := m.LoadDir(dir); err != nil {

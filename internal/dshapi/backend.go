@@ -242,11 +242,23 @@ func (b *Backend) frameToEvent(frame ServerRequest, channelID string) *client.Ev
 		}
 		b.applyEvent(rawEvent)
 		seq, _ := rawEvent["seq"].(float64)
-		b.markSeq(int64(seq))
+		seqInt := int64(seq)
+		b.markSeq(seqInt)
+		if text, ok := textDeltaFromEvent(rawEvent); ok {
+			return &client.Event{
+				Operation: "delta",
+				ChannelID: channelID,
+				Version:   seqInt,
+				Value: map[string]any{
+					"type":    "text",
+					"content": text,
+				},
+			}
+		}
 		return &client.Event{
 			Operation: "event",
 			ChannelID: channelID,
-			Version:   int64(seq),
+			Version:   seqInt,
 			State:     b.snapshotState(),
 		}
 	case "session/projection":
@@ -473,6 +485,29 @@ func (b *Backend) applyEventLocked(event map[string]any) {
 		return
 	}
 	b.messages = append(b.messages, client.Message{Role: role, Content: text})
+}
+
+// textDeltaFromEvent 判断 session/event 是否为 assistant/chunk 的文本增量。
+func textDeltaFromEvent(event map[string]any) (string, bool) {
+	if typ, _ := event["type"].(string); typ != "assistant/chunk" {
+		return "", false
+	}
+	data, _ := event["data"].(map[string]any)
+	if data == nil {
+		return "", false
+	}
+	chunk, _ := data["chunk"].(map[string]any)
+	if chunk == nil {
+		return "", false
+	}
+	if chunkType, _ := chunk["type"].(string); chunkType != "text-delta" {
+		return "", false
+	}
+	text, _ := chunk["text"].(string)
+	if text == "" {
+		return "", false
+	}
+	return text, true
 }
 
 // applyChunk 处理 assistant/chunk 的 text-delta 与 usage 事件。

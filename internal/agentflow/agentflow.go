@@ -170,6 +170,14 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 	result := &Result{Session: session, Actions: append([]agent.Action(nil), actions...)}
 	r.emit(Event{Type: EventPlan, Actions: actionEvents(actions)})
 
+	if req.TestCmd != "" && !req.DryRun {
+		if err := checkCommandSafety(req.TestCmd); err != nil {
+			err = fmt.Errorf("agentflow: unsafe test command: %w", err)
+			r.emit(Event{Type: EventError, Error: err.Error()})
+			return result, err
+		}
+	}
+
 	for {
 		a := session.NextPendingAction()
 		if a == nil {
@@ -202,6 +210,12 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 		}
 
 		if req.DryRun {
+			if a.Type == agent.ActionTypeRunCommand {
+				if err := checkCommandSafety(a.Command); err != nil {
+					r.emit(Event{Type: EventError, Error: err.Error()})
+					return result, fmt.Errorf("agentflow: execute %s: %w", a.ID, err)
+				}
+			}
 			output := "dry-run: " + a.Description
 			if err := session.MarkExecuted(a.ID, output); err != nil {
 				r.emit(Event{Type: EventError, Error: err.Error()})
@@ -242,6 +256,11 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 	// 未配置测试命令时，视为测试通过，让闭环进入 Diff 评审阶段。
 	if len(actions) > 0 && req.TestCmd != "" && !req.DryRun {
 		cmd := req.TestCmd
+		if err := checkCommandSafety(cmd); err != nil {
+			err = fmt.Errorf("agentflow: unsafe test command: %w", err)
+			r.emit(Event{Type: EventError, Error: err.Error()})
+			return result, err
+		}
 		res, testErr := r.Exec.Run(ctx, executor.Spec{
 			Command: "sh",
 			Args:    []string{"-c", cmd},
@@ -297,6 +316,9 @@ func (r *Runner) executeAction(ctx context.Context, a agent.Action, workDir stri
 	case agent.ActionTypeRunCommand:
 		if strings.TrimSpace(a.Command) == "" {
 			return "", errors.New("agentflow: run_command has empty command")
+		}
+		if err := checkCommandSafety(a.Command); err != nil {
+			return "", err
 		}
 		res, err := r.Exec.Run(ctx, executor.Spec{
 			Command: "sh",

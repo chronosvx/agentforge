@@ -16,8 +16,8 @@ import (
 // Backend 把 Provider 直连模式适配成 UI 层需要的 ChatBackend。
 //
 // 它与 DSH Backend 的差异是：会话状态保存在本地内存 + session.Store，
-// Invoke 时调用 Provider.StreamChat，并把文本增量转换为 client.Event 的
-// state.messages 更新，使 Bubble Tea UI 可以直接流式渲染。
+// Invoke 时调用 Provider.StreamChat，并把文本增量作为 client.Event delta
+// 推送，终态/关键状态变化时再推送完整 state，使 Bubble Tea UI 可以低开销流式渲染。
 type Backend struct {
 	mu       sync.Mutex
 	provider Provider
@@ -407,7 +407,7 @@ func (b *Backend) stream(st *sessionState, channelID, model string, fromOffline 
 		switch ev.Type {
 		case StreamEventText:
 			sb.WriteString(ev.Text)
-			b.emitAssistantDelta(st, channelID, sb.String())
+			b.emitAssistantDelta(st, channelID, ev.Text)
 		case StreamEventUsage:
 			b.emitUsage(st, channelID, ev.Usage)
 		case StreamEventError:
@@ -435,19 +435,22 @@ func (b *Backend) stream(st *sessionState, channelID, model string, fromOffline 
 	b.emitError(st, channelID, errors.New("provider backend: stream closed without done event"))
 }
 
-func (b *Backend) emitAssistantDelta(st *sessionState, channelID, content string) {
+func (b *Backend) emitAssistantDelta(st *sessionState, channelID, delta string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if st.closed {
+	if st.closed || delta == "" {
 		return
 	}
-	applyAssistantContentLocked(st, content)
+	applyAssistantDeltaLocked(st, delta)
 	st.seq++
 	ev := client.Event{
-		Operation: "event",
+		Operation: "delta",
 		ChannelID: channelID,
 		Version:   st.seq,
-		State:     b.stateLocked(st),
+		Value: map[string]any{
+			"type":    "text",
+			"content": delta,
+		},
 	}
 	b.broadcastLocked(ev, st)
 }
@@ -640,6 +643,16 @@ func applyAssistantContentLocked(st *sessionState, content string) {
 		return
 	}
 	st.messages = append(st.messages, client.Message{Role: "assistant", Content: content})
+}
+
+// applyAssistantDeltaLocked 只把流式增量追加到当前 assistant 消息末尾，
+// 避免每个 delta 都重放/复制整份会话状态。
+func applyAssistantDeltaLocked(st *sessionState, delta string) {
+	if n := len(st.messages); n > 0 && st.messages[n-1].Role == "assistant" {
+		st.messages[n-1].Content += delta
+		return
+	}
+	st.messages = append(st.messages, client.Message{Role: "assistant", Content: delta})
 }
 
 func messagesToAny(msgs []client.Message) []any {

@@ -245,3 +245,23 @@ func TestParseNoColorEnv(t *testing.T) {
 		t.Fatal("expected NoColor true from DSH_NO_COLOR")
 	}
 }
+
+func TestParsePluginsEnabledFlag(t *testing.T) {
+	cfg, err := config.Parse([]string{"--plugins-enabled"})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !cfg.PluginsEnabled {
+		t.Fatal("expected PluginsEnabled true")
+	}
+}
+
+func TestParsePluginsEnabledDefaultsFalse(t *testing.T) {
+	cfg, err := config.Parse(nil)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if cfg.PluginsEnabled {
+		t.Fatal("expected PluginsEnabled false by default")
+	}
+}

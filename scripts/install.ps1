@@ -8,6 +8,9 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Version 0.2.0
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -AddToPath
+#
+# Release 下载会先下载 checksums.txt 并强制校验 SHA256；
+# checksums.txt 缺失/下载失败或校验失败都会中止安装。
 param(
     [string]$Version = "",
     [switch]$AddToPath,
@@ -63,9 +66,54 @@ function Install-FromRelease {
     }
 
     $tag = if ($VersionToUse -match '^v') { $VersionToUse } else { "v$VersionToUse" }
-    $url = "https://github.com/$Owner/$Repo/releases/download/$tag/agentforge-windows-$arch.exe"
-    Write-Host "==> downloading $url"
-    Invoke-WebRequest -Uri $url -OutFile $ExePath
+    $asset = "agentforge-windows-$arch.exe"
+    $binaryUrl = "https://github.com/$Owner/$Repo/releases/download/$tag/$asset"
+    $checksumUrl = "https://github.com/$Owner/$Repo/releases/download/$tag/checksums.txt"
+
+    # 先下载到临时文件；校验通过后才移动到最终安装路径。
+    $tempDir = [System.IO.Path]::GetTempPath()
+    $checksumFile = Join-Path $tempDir ("agentforge-checksums-" + [guid]::NewGuid().ToString('N') + ".txt")
+    $tempExe = Join-Path $tempDir ("agentforge-" + [guid]::NewGuid().ToString('N') + ".exe")
+
+    try {
+        Write-Host "==> downloading $checksumUrl"
+        Invoke-WebRequest -UseBasicParsing -Uri $checksumUrl -OutFile $checksumFile
+
+        $expectedHash = $null
+        foreach ($line in Get-Content -LiteralPath $checksumFile) {
+            $parts = $line -split '\s+', 2
+            if ($parts.Count -eq 2) {
+                $name = $parts[1].Trim()
+                if ($name.StartsWith('*')) {
+                    $name = $name.Substring(1)
+                }
+                if ($name -eq $asset) {
+                    $expectedHash = $parts[0].Trim()
+                    break
+                }
+            }
+        }
+        if (-not $expectedHash) {
+            throw "checksums.txt does not contain an entry for $asset"
+        }
+
+        Write-Host "==> downloading $binaryUrl"
+        Invoke-WebRequest -UseBasicParsing -Uri $binaryUrl -OutFile $tempExe
+
+        $actualHash = (Get-FileHash -LiteralPath $tempExe -Algorithm SHA256).Hash
+        if ($actualHash -ne $expectedHash) {
+            throw "SHA256 mismatch for $asset`n  expected: $expectedHash`n  actual:   $actualHash"
+        }
+
+        Write-Host "==> checksum verified"
+        Move-Item -LiteralPath $tempExe -Destination $ExePath -Force
+        Remove-Item -LiteralPath $checksumFile -Force -ErrorAction SilentlyContinue
+    }
+    catch {
+        Remove-Item -LiteralPath $checksumFile -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $tempExe -Force -ErrorAction SilentlyContinue
+        throw
+    }
 }
 
 if ($Version -ne '' -or -not (Get-Command go -ErrorAction SilentlyContinue)) {

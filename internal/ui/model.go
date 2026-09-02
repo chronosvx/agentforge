@@ -128,11 +128,12 @@ type Model struct {
 	asyncStore *session.AsyncStore
 	auditFn    func(event string, fields map[string]any)
 
-	sessionID    string
-	sessionTitle string
-	channelID    string
-	events       <-chan client.Event
-	eventCancel  context.CancelFunc
+	sessionID        string
+	sessionTitle     string
+	channelID        string
+	events           <-chan client.Event
+	eventCancel      context.CancelFunc
+	lastEventVersion int64
 
 	messages        []client.Message
 	status          string
@@ -199,9 +200,10 @@ type Model struct {
 	searchResults []session.Result
 	searchCursor  int
 
-	pluginManager *plugin.Manager
-	plugins       []plugin.Plugin
-	pluginCursor  int
+	pluginManager  *plugin.Manager
+	plugins        []plugin.Plugin
+	pluginCursor   int
+	pluginsEnabled bool
 
 	agentSession   *agent.AgentSession
 	agentCursor    int
@@ -366,8 +368,11 @@ func New(cfg *config.Config, cl ChatBackend, store session.LocalStore, auditFn .
 	}
 
 	m.pluginManager = plugin.NewManager(cfg.Workspace)
-	if err := m.pluginManager.LoadDir(filepath.Join(cfg.DataDir, "plugins")); err == nil {
-		m.plugins = m.pluginManager.List()
+	m.pluginsEnabled = cfg.PluginsEnabled
+	if cfg.PluginsEnabled {
+		if err := m.pluginManager.LoadDir(filepath.Join(cfg.DataDir, "plugins")); err == nil {
+			m.plugins = m.pluginManager.List()
+		}
 	}
 
 	return m
@@ -443,6 +448,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.eventCancel = msg.cancel
 		m.channelID = msg.snapshot.ChannelID
 		m.events = msg.events
+		m.lastEventVersion = msg.snapshot.Version
 		m.err = nil
 		if m.cfg != nil && m.cfg.APIURL != "" && msg.snapshot.ChannelID != "" {
 			m.sessionID = msg.snapshot.ChannelID
@@ -466,7 +472,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.waitEventCmd())
 			break
 		}
+		if msg.event.Version > 0 && m.lastEventVersion > 0 && msg.event.Version <= m.lastEventVersion {
+			// 重复或乱序/迟到的同 channel 事件：版本不前进时忽略，避免旧快照覆盖新状态。
+			cmds = append(cmds, m.waitEventCmd())
+			break
+		}
+		if msg.event.Version > m.lastEventVersion {
+			m.lastEventVersion = msg.event.Version
+		}
 		m.status = "streaming..."
+		if delta, ok := textDeltaContent(msg.event); ok {
+			// 流式 delta 只追加本地增量，避免每个 token 都全量同步长会话。
+			m.appendAssistantDelta(delta)
+			m.updateTPS()
+			cmds = append(cmds, m.waitEventCmd())
+			break
+		}
 		m.syncMessagesFromState(msg.event.State)
 		m.syncSkillsFromMessages()
 		m.syncUsageFromState(msg.event.State)
@@ -1174,13 +1195,20 @@ func (m *Model) applyLayout() {
 	if mainWidth < 20 {
 		mainWidth = m.width - 2
 	}
+	if mainWidth < 1 {
+		mainWidth = 1
+	}
 	m.viewport.Width = mainWidth
 	height := m.height - 5
 	if height < 1 {
 		height = 1
 	}
 	m.viewport.Height = height
-	m.input.SetWidth(mainWidth - 2)
+	inputWidth := mainWidth - 2
+	if inputWidth < 1 {
+		inputWidth = 1
+	}
+	m.input.SetWidth(inputWidth)
 	m.dirty = true
 }
 
@@ -1408,6 +1436,47 @@ func digitIndex(s string) (int, bool) {
 		return 0, false
 	}
 	return int(s[0] - '0'), true
+}
+
+// textDeltaContent 从事件中提取流式文本增量。支持 Provider/DSH 约定的
+// Value: {"type":"text","content":"..."}，也兼容直接字符串增量。
+func textDeltaContent(ev client.Event) (string, bool) {
+	if ev.Operation != "delta" {
+		return "", false
+	}
+	switch v := ev.Value.(type) {
+	case string:
+		if v == "" {
+			return "", false
+		}
+		return v, true
+	case map[string]any:
+		if typ, _ := v["type"].(string); typ != "" && typ != "text" {
+			return "", false
+		}
+		if s, _ := v["content"].(string); s != "" {
+			return s, true
+		}
+		if s, _ := v["text"].(string); s != "" {
+			return s, true
+		}
+	}
+	return "", false
+}
+
+// appendAssistantDelta 将一段流式文本增量追加到本地最后一条 assistant 消息；
+// 没有 assistant 消息时新建一条。该方法只更新本地消息和 dirty 标记，
+// 不触发全量 syncMessagesFromState/syncWindowFromMessages/skills 扫描。
+func (m *Model) appendAssistantDelta(delta string) {
+	if delta == "" {
+		return
+	}
+	if n := len(m.messages); n > 0 && m.messages[n-1].Role == "assistant" {
+		m.messages[n-1].Content += delta
+	} else {
+		m.messages = append(m.messages, client.Message{Role: "assistant", Content: delta})
+	}
+	m.dirty = true
 }
 
 func (m *Model) syncMessagesFromState(state map[string]any) {
