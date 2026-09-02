@@ -6,6 +6,7 @@ import (
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/chronosvx/agentforge/internal/config"
 	"github.com/chronosvx/agentforge/internal/i18n"
 	"github.com/chronosvx/agentforge/internal/mcp"
 	"github.com/chronosvx/agentforge/internal/multiagent"
@@ -195,6 +196,31 @@ func (m *Model) skillInstallCmd(target string) tea.Cmd {
 		entries, err := skill.InstallFromRepo(target, m.cfg.DataDir)
 		return skillInstallMsg{entries: entries, err: err}
 	}
+}
+
+// supportedThemeNames 是 /theme 命令可切换的主题。
+var supportedThemeNames = []string{
+	"default", "catppuccin", "dracula", "tokyo-night", "nord", "solarized",
+}
+
+// validThemeName 判断名称是否为受支持的主题。
+func validThemeName(name string) bool {
+	for _, theme := range supportedThemeNames {
+		if name == theme {
+			return true
+		}
+	}
+	return false
+}
+
+// lastUserMessage 返回当前会话最后一条 user 消息内容。
+func (m *Model) lastUserMessage() (string, bool) {
+	for i := len(m.messages) - 1; i >= 0; i-- {
+		if m.messages[i].Role == "user" {
+			return m.messages[i].Content, true
+		}
+	}
+	return "", false
 }
 
 // handleCommand 处理以 / 开头的本地命令。目前返回时不发送给 Agent。
@@ -531,6 +557,39 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 		m.dirty = true
 		m.followBottom = true
 		m.status = i18n.T("status.cleared")
+	case "/theme":
+		themeArg := ""
+		if len(fields) > 1 {
+			themeArg = strings.ToLower(strings.TrimSpace(strings.Join(fields[1:], " ")))
+		}
+		if themeArg == "" {
+			theme := "default"
+			if m.cfg != nil && m.cfg.Theme != "" {
+				theme = m.cfg.Theme
+			}
+			m.status = i18n.T("status.current_theme", theme)
+			break
+		}
+		if !validThemeName(themeArg) {
+			m.status = i18n.T("status.invalid_theme", themeArg)
+			break
+		}
+		if m.cfg == nil {
+			m.cfg = &config.Config{}
+		}
+		m.cfg.Theme = themeArg
+		m.dirty = true
+		m.redraw = true
+		m.redrawn = true
+		m.status = i18n.T("status.theme_switched", themeArg)
+	case "/exit", "/quit":
+		m.stopRequested = true
+		if m.eventCancel != nil {
+			m.eventCancel()
+			m.eventCancel = nil
+		}
+		m.flushPersist()
+		return tea.Quit
 	case "/status":
 		m.status = m.statusSummary()
 	case "/right":

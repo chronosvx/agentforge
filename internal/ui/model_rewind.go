@@ -69,6 +69,8 @@ func (m *Model) handleRewindKey(key string) bool {
 
 		m.messages = m.messages[:idx]
 		m.input.SetValue(candidate.Content)
+		m.syncInputHeight()
+		m.applyLayout()
 		m.dirty = true
 		m.followBottom = true
 		m.status = i18n.T("rewind.picked")

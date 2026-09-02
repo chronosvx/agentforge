@@ -97,6 +97,7 @@ var commandPaletteCommands = []string{
 	"/timeline", "/fork", "/remember", "/forget", "/memory",
 	"/exec", "/multi", "/multi-run", "/agents",
 	"/agentview", "/history", "/compact",
+	"/theme", "/exit", "/quit",
 }
 
 // basicCommandPaletteCommands 是默认命令面板/帮助中优先展示的基础命令。
@@ -108,6 +109,7 @@ var basicCommandPaletteCommands = []string{
 	"/exec", "/agent", "/agent-new", "/multi", "/multi-run", "/agents",
 	"/agentview", "/history", "/compact",
 	"/model", "/rename", "/delete", "/export", "/close", "/clear", "/status", "/memory",
+	"/theme",
 }
 
 // isBasicCommand 判断命令是否属于默认基础命令集合。
@@ -270,6 +272,8 @@ type Model struct {
 
 	// Virtual scrolling / incremental rendering state.
 	dirty                 bool
+	redraw                bool
+	redrawn               bool
 	followBottom          bool
 	scrollOffset          int
 	lastRenderedCount     int
@@ -295,7 +299,7 @@ func New(cfg *config.Config, cl ChatBackend, store session.LocalStore, auditFn .
 	input := textarea.New()
 	input.Placeholder = i18n.T("input.placeholder")
 	input.SetWidth(80)
-	input.SetHeight(3)
+	input.SetHeight(1)
 	input.ShowLineNumbers = false
 	input.Focus()
 
@@ -1034,6 +1038,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.closeMention()
 				m.openCommandPalette()
 				return m, tea.Batch(cmds...)
+			case "alt+up":
+				m.closeMention()
+				if m.input.Height() == 0 {
+					m.input = textarea.New()
+					m.input.Focus()
+					m.input.SetWidth(80)
+					m.input.SetHeight(1)
+				}
+				if text, ok := m.lastUserMessage(); ok {
+					m.input.SetValue(text)
+					m.input.CursorEnd()
+					m.syncInputHeight()
+					m.applyLayout()
+					m.status = i18n.T("status.user_message_recalled")
+				} else {
+					m.status = i18n.T("status.no_user_message")
+				}
+				return m, tea.Batch(cmds...)
+			case "ctrl+l":
+				m.redraw = true
+				m.redrawn = true
+				m.dirty = true
+				m.status = i18n.T("status.redrawn")
+				return m, tea.Batch(cmds...)
 			case "ctrl+c":
 				if !m.stopRequested {
 					m.stopRequested = true
@@ -1056,11 +1084,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+j":
 				m.input.InsertString("\n")
 			case "enter":
+				// Enter 是提交键；Ctrl+J 才是插入换行。这里跳过后续 textarea.Update，
+				// 避免清空后又被 textarea 插入一个多余的新行。
+				skipInputUpdate = true
 				text := strings.TrimSpace(m.input.Value())
 				if text == "" {
 					break
 				}
 				m.input.SetValue("")
+				m.syncInputHeight()
+				m.applyLayout()
 				m.appendHistory(text)
 				if strings.HasPrefix(text, "/") {
 					if cmd := m.handleCommand(text); cmd != nil {
@@ -1128,6 +1161,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if _, ok := msg.(tea.KeyMsg); ok {
 			m.syncMentionFromInput()
 		}
+		m.syncInputHeight()
+		m.applyLayout()
 
 		// 虚拟滚动由 UI 层自己处理，避免 viewport 只对窗口切片做局部滚动。
 		if m.ready && isViewportScrollMsg(msg) {
@@ -1170,8 +1205,55 @@ func isViewportScrollMsg(msg tea.Msg) bool {
 	return false
 }
 
+// syncInputHeight 根据输入框当前内容与可用宽度调整 textarea 高度。
+// 空内容保持 1 行；显式换行和自动换行都会增加高度；清空后自动缩回。
+func (m *Model) syncInputHeight() {
+	if m.input.Height() == 0 {
+		return
+	}
+	width := m.input.Width()
+	if width < 1 {
+		width = m.width - 4
+	}
+	if width < 1 {
+		width = 80
+	}
+
+	lines := 1
+	value := m.input.Value()
+	if value != "" {
+		lines = 0
+		for _, line := range strings.Split(value, "\n") {
+			w := lipgloss.Width(line)
+			if w < 1 {
+				lines++
+				continue
+			}
+			lines += (w + width - 1) / width
+		}
+	}
+
+	// 建议上限：8 行或可用高度的一半，取较小值；至少保留 1 行。
+	maxHeight := 8
+	if m.height > 0 {
+		if half := (m.height - 1) / 2; half < maxHeight {
+			maxHeight = half
+		}
+	}
+	if maxHeight < 1 {
+		maxHeight = 1
+	}
+	if lines < 1 {
+		lines = 1
+	}
+	if lines > maxHeight {
+		lines = maxHeight
+	}
+	m.input.SetHeight(lines)
+}
+
 func (m *Model) applyLayout() {
-	if m.width <= 0 || m.height <= 0 {
+	if m.width <= 0 || m.height <= 0 || m.input.Height() == 0 {
 		return
 	}
 	mainWidth := m.width - 2
@@ -1182,9 +1264,6 @@ func (m *Model) applyLayout() {
 		m.splitSessionID = ""
 		m.splitMessages = nil
 		m.splitMessagesLoaded = false
-	}
-	if len(m.tabs) > 0 {
-		mainWidth -= sidebarWidth + 2
 	}
 	if m.rightPanel {
 		mainWidth -= rightPanelWidth + 2
@@ -1199,16 +1278,17 @@ func (m *Model) applyLayout() {
 		mainWidth = 1
 	}
 	m.viewport.Width = mainWidth
-	height := m.height - 5
-	if height < 1 {
-		height = 1
-	}
-	m.viewport.Height = height
 	inputWidth := mainWidth - 2
 	if inputWidth < 1 {
 		inputWidth = 1
 	}
 	m.input.SetWidth(inputWidth)
+	m.syncInputHeight()
+	height := m.height - m.input.Height() - 1
+	if height < 1 {
+		height = 1
+	}
+	m.viewport.Height = height
 	m.dirty = true
 }
 
@@ -1256,13 +1336,9 @@ func (m Model) View() string {
 	if m.mentionOpen {
 		mentionView = m.renderMention()
 	}
-	tabBar := m.renderTabs()
-	main := style.Render(tabBar + "\n" + m.viewport.View() + panelView + helpView + paletteView + historyView + rewindView + agentView + mcpApprovalView + mentionView + "\n" + inputView + "\n" + statusLine)
+	main := style.Render(m.viewport.View() + panelView + helpView + paletteView + historyView + rewindView + agentView + mcpApprovalView + mentionView + "\n" + inputView + "\n" + statusLine)
 
 	parts := make([]string, 0, 3)
-	if sidebar := m.renderSidebar(); sidebar != "" {
-		parts = append(parts, sidebar)
-	}
 	parts = append(parts, main)
 	if m.rightPanel {
 		parts = append(parts, m.renderRightPanel())

@@ -77,6 +77,8 @@ func (m *Model) handleHistoryKey(key string) bool {
 				m.historySearchCursor = 0
 			}
 			m.input.SetValue(m.historySearchResults[m.historySearchCursor])
+			m.syncInputHeight()
+			m.applyLayout()
 		}
 		m.closeHistorySearch()
 		return true

@@ -35,7 +35,7 @@ func main() {
 	}
 }
 
-var version = "0.6.1"
+var version = "0.7.0"
 
 func run() error {
 	args := os.Args[1:]
@@ -77,6 +77,8 @@ func run() error {
 			return runConfig(args[1:])
 		case "market":
 			return runMarket(args[1:])
+		case "update":
+			return runUpdate(args[1:])
 		}
 	}
 
@@ -232,6 +234,7 @@ Commands:
   setup        Run the first-run setup wizard
   config       Show effective configuration (secrets masked)
   market       Search/install/list plugins from a plugin market
+  update       Update agentforge to the latest (or specified) release
 
 Flags:
   --mock              Run with the built-in mock backend

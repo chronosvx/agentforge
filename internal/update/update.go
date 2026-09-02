@@ -1,16 +1,19 @@
-// Package update 提供自动更新检查所需的版本比较与 GitHub Release 查询能力。
-//
-// 当前只负责“检查并提示”，不会自动下载或安装新版本。
+// Package update 提供自动更新所需的版本比较、GitHub Release 查询、
+// 发布资产下载与 SHA256 校验能力。
 package update
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +23,15 @@ import (
 
 // GitHubAPIBase 是 GitHub REST API 默认入口。
 const GitHubAPIBase = "https://api.github.com"
+
+// PublicInstallOwner 是公开安装仓库所属 GitHub 用户/组织。
+const PublicInstallOwner = "chronosvx"
+
+// PublicInstallRepo 是公开安装仓库名，其中发布 agentforge 预编译二进制与 checksums.txt。
+const PublicInstallRepo = "agentforge-install"
+
+// GitHubDownloadBase 是 GitHub Release 资产下载默认入口。
+const GitHubDownloadBase = "https://github.com"
 
 // maxResponseSize 限制 GitHub API 响应读取上限，避免异常响应占用过多内存。
 const maxResponseSize = 1 << 20 // 1 MiB
@@ -224,4 +236,127 @@ func LatestFromGitHubWithClient(ctx context.Context, owner, repo, apiBase string
 		return "", errors.New("update: github latest release has empty tag_name")
 	}
 	return release.TagName, nil
+}
+
+// LatestFromPublic 查询公开安装仓库 chronosvx/agentforge-install 的最新 Release tag。
+func LatestFromPublic(ctx context.Context) (string, error) {
+	return LatestFromGitHubWithClient(ctx, PublicInstallOwner, PublicInstallRepo, GitHubAPIBase, &http.Client{Timeout: 10 * time.Second})
+}
+
+// AssetName 返回指定 GOOS/GOARCH 对应的发布资产名。
+func AssetName(goos, goarch string) string {
+	name := "agentforge-" + goos + "-" + goarch
+	if goos == "windows" {
+		name += ".exe"
+	}
+	return name
+}
+
+// DownloadReleaseAsset 从 GitHub Release 下载指定资产到 destPath。
+func DownloadReleaseAsset(ctx context.Context, owner, repo, version, asset, destPath string) error {
+	return DownloadReleaseAssetWithClient(ctx, owner, repo, version, asset, destPath, GitHubDownloadBase, &http.Client{Timeout: 30 * time.Second})
+}
+
+// DownloadReleaseAssetWithClient 与 DownloadReleaseAsset 相同，但允许注入下载
+// base URL 与 HTTP client，便于测试（例如 httptest）。
+func DownloadReleaseAssetWithClient(ctx context.Context, owner, repo, version, asset, destPath, base string, hc *http.Client) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	owner = strings.TrimSpace(owner)
+	repo = strings.TrimSpace(repo)
+	version = strings.TrimSpace(version)
+	asset = strings.TrimSpace(asset)
+	if owner == "" || repo == "" || version == "" || asset == "" {
+		return errors.New("update: owner, repo, version and asset are required")
+	}
+	if destPath == "" {
+		return errors.New("update: destPath is required")
+	}
+	if base == "" {
+		base = GitHubDownloadBase
+	}
+	if hc == nil {
+		hc = &http.Client{Timeout: 30 * time.Second}
+	}
+
+	u := strings.TrimRight(base, "/") +
+		"/" + url.PathEscape(owner) +
+		"/" + url.PathEscape(repo) +
+		"/releases/download/" + url.PathEscape(version) +
+		"/" + url.PathEscape(asset)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return fmt.Errorf("update: create download request: %w", err)
+	}
+	req.Header.Set("User-Agent", "agentforge")
+
+	resp, err := hc.Do(req)
+	if err != nil {
+		return fmt.Errorf("update: download %s: %w", u, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("update: download http %d: %s", resp.StatusCode, security.Redact(strings.TrimSpace(string(body))))
+	}
+
+	out, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("update: create destination %s: %w", destPath, err)
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, resp.Body); err != nil {
+		return fmt.Errorf("update: write %s: %w", destPath, err)
+	}
+	return nil
+}
+
+// VerifyChecksum 读取 checksums.txt，校验 assetPath 的 SHA256 是否与
+// assetName 对应条目一致。
+func VerifyChecksum(assetPath, checksumsPath, assetName string) error {
+	if strings.TrimSpace(assetName) == "" {
+		return errors.New("update: asset name is required")
+	}
+
+	checksums, err := os.ReadFile(checksumsPath)
+	if err != nil {
+		return fmt.Errorf("update: read checksums %s: %w", checksumsPath, err)
+	}
+
+	expected := ""
+	for _, line := range strings.Split(string(checksums), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		hash := strings.ToLower(strings.TrimSpace(fields[0]))
+		name := strings.TrimPrefix(strings.TrimSpace(fields[1]), "*")
+		name = strings.TrimPrefix(name, "./")
+		name = strings.TrimSuffix(name, "\r")
+		if name == assetName || filepath.Base(name) == assetName {
+			expected = hash
+			break
+		}
+	}
+	if expected == "" {
+		return fmt.Errorf("update: checksums.txt does not contain an entry for %s", assetName)
+	}
+
+	data, err := os.ReadFile(assetPath)
+	if err != nil {
+		return fmt.Errorf("update: read asset %s: %w", assetPath, err)
+	}
+	sum := sha256.Sum256(data)
+	actual := hex.EncodeToString(sum[:])
+	if !strings.EqualFold(actual, expected) {
+		return fmt.Errorf("update: sha256 mismatch for %s: expected %s, got %s", assetName, expected, actual)
+	}
+	return nil
 }

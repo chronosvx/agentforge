@@ -139,6 +139,8 @@ func (m *Model) acceptMention() {
 		m.input.SetValue(value[:at+1] + selected + value[queryEnd:])
 		m.input.CursorEnd()
 	}
+	m.syncInputHeight()
+	m.applyLayout()
 	m.closeMention()
 }
 

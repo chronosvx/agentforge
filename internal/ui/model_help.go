@@ -22,6 +22,8 @@ var helpShortcutFallback = map[string][2]string{
 	"help.key_sessions":    {"Ctrl+←/→ 切换会话", "Ctrl+←/→ switch sessions"},
 	"help.key_scroll":      {"↑/↓、PgUp/PgDn、鼠标滚轮滚动消息", "↑/↓, PgUp/PgDn, mouse wheel to scroll"},
 	"help.key_history":     {"Ctrl+R 搜索输入历史", "Ctrl+R search input history"},
+	"help.key_redraw":      {"Ctrl+L 清屏/强制重绘", "Ctrl+L clear/force redraw"},
+	"help.key_recall":      {"Alt+Up 取回最后一条 user 消息", "Alt+Up recall the last user message"},
 	"help.key_agentview":   {"/agentview 打开会话总览", "/agentview open session overview"},
 	"help.key_rewind":      {"空输入双击 Esc 时间回溯", "Double-Esc on empty input to rewind"},
 }
@@ -96,6 +98,8 @@ func (m *Model) helpLines() []string {
 		"help.key_sessions",
 		"help.key_scroll",
 		"help.key_history",
+		"help.key_redraw",
+		"help.key_recall",
 		"help.key_agentview",
 		"help.key_rewind",
 	} {
@@ -135,10 +139,10 @@ func (m *Model) renderHelpPanel() string {
 		BorderForeground(lipgloss.Color("5")).
 		Padding(0, 1).
 		Width(72).
-		MaxHeight(20)
+		MaxHeight(22)
 
 	lines := m.helpLines()
-	const visible = 18
+	const visible = 20
 	start := 0
 	if m.helpCursor >= visible {
 		start = m.helpCursor - visible + 1

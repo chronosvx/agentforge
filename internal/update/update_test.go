@@ -2,8 +2,12 @@ package update_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -96,5 +100,134 @@ func TestLatestFromGitHubRequiresOwnerRepo(t *testing.T) {
 	}
 	if _, err := update.LatestFromGitHub("owner", ""); err == nil {
 		t.Fatal("expected error for empty repo")
+	}
+}
+
+func TestAssetName(t *testing.T) {
+	tests := []struct {
+		goos   string
+		goarch string
+		want   string
+	}{
+		{goos: "darwin", goarch: "amd64", want: "agentforge-darwin-amd64"},
+		{goos: "darwin", goarch: "arm64", want: "agentforge-darwin-arm64"},
+		{goos: "linux", goarch: "amd64", want: "agentforge-linux-amd64"},
+		{goos: "linux", goarch: "arm64", want: "agentforge-linux-arm64"},
+		{goos: "windows", goarch: "amd64", want: "agentforge-windows-amd64.exe"},
+		{goos: "windows", goarch: "arm64", want: "agentforge-windows-arm64.exe"},
+	}
+	for _, tt := range tests {
+		if got := update.AssetName(tt.goos, tt.goarch); got != tt.want {
+			t.Errorf("AssetName(%q, %q) = %q, want %q", tt.goos, tt.goarch, got, tt.want)
+		}
+	}
+}
+
+func TestDownloadReleaseAssetWithMock(t *testing.T) {
+	const (
+		asset = "agentforge-darwin-arm64"
+		body  = "new agentforge binary"
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wantPath := "/chronosvx/agentforge-install/releases/download/v0.6.1/" + asset
+		if r.URL.Path != wantPath {
+			t.Errorf("unexpected path: %s, want %s", r.URL.Path, wantPath)
+		}
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected method: %s", r.Method)
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "download.bin")
+	err := update.DownloadReleaseAssetWithClient(context.Background(), "chronosvx", "agentforge-install", "v0.6.1", asset, dest, srv.URL, srv.Client())
+	if err != nil {
+		t.Fatalf("DownloadReleaseAssetWithClient: %v", err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read downloaded file: %v", err)
+	}
+	if string(got) != body {
+		t.Fatalf("downloaded content = %q, want %q", got, body)
+	}
+}
+
+func TestDownloadReleaseAssetHTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "missing", http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	err := update.DownloadReleaseAssetWithClient(context.Background(), "chronosvx", "agentforge-install", "v9.9.9", "nope", filepath.Join(t.TempDir(), "nope"), srv.URL, srv.Client())
+	if err == nil {
+		t.Fatal("expected HTTP error")
+	}
+	if !strings.Contains(err.Error(), "404") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestVerifyChecksumSuccess(t *testing.T) {
+	dir := t.TempDir()
+	assetName := "agentforge-linux-amd64"
+	assetPath := filepath.Join(dir, assetName)
+	content := []byte("linux amd64 binary")
+	if err := os.WriteFile(assetPath, content, 0o755); err != nil {
+		t.Fatalf("write asset: %v", err)
+	}
+	sum := sha256.Sum256(content)
+	checksumsPath := filepath.Join(dir, "checksums.txt")
+	line := fmt.Sprintf("%x  %s\n", sum, assetName)
+	if err := os.WriteFile(checksumsPath, []byte(line), 0o644); err != nil {
+		t.Fatalf("write checksums: %v", err)
+	}
+
+	if err := update.VerifyChecksum(assetPath, checksumsPath, assetName); err != nil {
+		t.Fatalf("VerifyChecksum: %v", err)
+	}
+}
+
+func TestVerifyChecksumMismatch(t *testing.T) {
+	dir := t.TempDir()
+	assetName := "agentforge-linux-amd64"
+	assetPath := filepath.Join(dir, assetName)
+	content := []byte("actual binary")
+	if err := os.WriteFile(assetPath, content, 0o755); err != nil {
+		t.Fatalf("write asset: %v", err)
+	}
+	checksumsPath := filepath.Join(dir, "checksums.txt")
+	line := strings.Repeat("0", 64) + "  " + assetName + "\n"
+	if err := os.WriteFile(checksumsPath, []byte(line), 0o644); err != nil {
+		t.Fatalf("write checksums: %v", err)
+	}
+
+	err := update.VerifyChecksum(assetPath, checksumsPath, assetName)
+	if err == nil {
+		t.Fatal("expected checksum mismatch error")
+	}
+	if !strings.Contains(err.Error(), "sha256 mismatch") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestVerifyChecksumMissingEntry(t *testing.T) {
+	dir := t.TempDir()
+	assetPath := filepath.Join(dir, "agentforge-linux-amd64")
+	if err := os.WriteFile(assetPath, []byte("x"), 0o755); err != nil {
+		t.Fatalf("write asset: %v", err)
+	}
+	checksumsPath := filepath.Join(dir, "checksums.txt")
+	if err := os.WriteFile(checksumsPath, []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  agentforge-darwin-amd64\n"), 0o644); err != nil {
+		t.Fatalf("write checksums: %v", err)
+	}
+
+	err := update.VerifyChecksum(assetPath, checksumsPath, "agentforge-linux-amd64")
+	if err == nil {
+		t.Fatal("expected missing-entry error")
+	}
+	if !strings.Contains(err.Error(), "does not contain an entry") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
