@@ -2,13 +2,15 @@ package ui
 
 import (
 	"fmt"
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/chronosvx/agentforge/internal/agent"
+	"github.com/chronosvx/agentforge/internal/client"
 	"github.com/chronosvx/agentforge/internal/cost"
 	"github.com/chronosvx/agentforge/internal/i18n"
 	"github.com/chronosvx/agentforge/internal/session"
-	"strings"
 )
 
 func (m *Model) mouseWheelPanelOpen() bool {
@@ -255,16 +257,43 @@ func (m *Model) handleSplitKey(key string) bool {
 	}
 	next := (cur + delta + len(ids)) % len(ids)
 	m.splitSessionID = ids[next]
+	m.loadSplitSession()
 	m.status = "split session: " + m.splitSessionID
 	return true
+}
+
+// loadSplitSession 在开启分屏或切换右侧分屏会话时，把要展示的消息一次性载入内存。
+// 这样 renderSplitPanel 只需读取缓存，不必在每一帧 View 渲染中都执行磁盘 Load。
+func (m *Model) loadSplitSession() {
+	m.splitMessages = nil
+	m.splitMessagesLoaded = false
+	if m.store == nil || m.splitSessionID == "" {
+		return
+	}
+	if m.splitSessionID == m.sessionID {
+		m.splitMessages = append([]client.Message(nil), m.messages...)
+		m.splitMessagesLoaded = true
+		return
+	}
+	if entry, err := m.store.Load(m.splitSessionID); err == nil {
+		m.splitMessages = append([]client.Message(nil), entry.Messages...)
+		m.splitMessagesLoaded = true
+	}
 }
 
 func (m *Model) renderSplitPanel() string {
 	var b strings.Builder
 	b.WriteString(i18n.T("panel.split_title", m.splitSessionID) + "\n\n")
 	if m.store != nil && m.splitSessionID != "" {
-		if entry, err := m.store.Load(m.splitSessionID); err == nil {
-			for _, msg := range entry.Messages {
+		var messages []client.Message
+		if m.splitSessionID == m.sessionID {
+			messages = m.messages
+		} else if m.splitMessagesLoaded {
+			messages = m.splitMessages
+		}
+
+		if m.splitSessionID == m.sessionID || m.splitMessagesLoaded {
+			for _, msg := range messages {
 				role := msg.Role
 				if role == "" {
 					role = "?"

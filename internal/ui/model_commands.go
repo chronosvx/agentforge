@@ -527,9 +527,12 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 					break
 				}
 			}
+			m.loadSplitSession()
 		} else {
 			m.splitEnabled = false
 			m.splitSessionID = ""
+			m.splitMessages = nil
+			m.splitMessagesLoaded = false
 		}
 		m.applyLayout()
 	case "/sessions", "/resume":

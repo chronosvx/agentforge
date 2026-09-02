@@ -41,6 +41,7 @@ type sessionState struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	subs       map[chan client.Event]struct{}
+	sendMu     sync.Mutex
 }
 
 // NewBackend 创建基于 Provider 的 UI 后端。store 可为 nil，此时不写本地历史。
@@ -551,18 +552,43 @@ func (b *Backend) closeStateLocked(st *sessionState) {
 		st.cancel = nil
 	}
 	st.closed = true
+	// Serialize with asynchronous terminal sends so Close never closes a channel
+	// while a send is in progress (which would be a data race/panic).
+	st.sendMu.Lock()
 	for ch := range st.subs {
 		close(ch)
 	}
 	st.subs = make(map[chan client.Event]struct{})
+	st.sendMu.Unlock()
 }
 
 func (b *Backend) broadcastLocked(ev client.Event, st *sessionState) {
 	for ch := range st.subs {
 		if ev.Operation == "done" || ev.Operation == "error" {
-			// Terminal events must not be dropped: block until the subscriber
-			// is ready to receive them so UI/headless cannot miss completion.
-			ch <- ev
+			// Terminal events must not be dropped when a subscriber is actively
+			// reading, but a slow/non-reading subscriber must not stall the whole
+			// backend while b.mu is held. Try a non-blocking send first; only fall
+			// back to a bounded asynchronous send when the subscriber is blocked.
+			select {
+			case ch <- ev:
+			default:
+				go func(ch chan client.Event, ev client.Event) {
+					defer func() { _ = recover() }()
+					st.sendMu.Lock()
+					defer st.sendMu.Unlock()
+					// If capacity appeared while waiting for sendMu, deliver immediately
+					// instead of letting an already-fired timeout race the send.
+					select {
+					case ch <- ev:
+						return
+					default:
+					}
+					select {
+					case ch <- ev:
+					case <-time.After(200 * time.Millisecond):
+					}
+				}(ch, ev)
+			}
 			continue
 		}
 		select {

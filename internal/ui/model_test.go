@@ -52,6 +52,33 @@ func (f *fakeBackend) CloseConn() error {
 	return nil
 }
 
+type countingStore struct {
+	loads   int
+	entries map[string]*session.Entry
+}
+
+func (c *countingStore) List() ([]session.Entry, error) {
+	return nil, nil
+}
+
+func (c *countingStore) Load(id string) (*session.Entry, error) {
+	c.loads++
+	if e, ok := c.entries[id]; ok {
+		clone := *e
+		clone.Messages = append([]client.Message(nil), e.Messages...)
+		return &clone, nil
+	}
+	return nil, os.ErrNotExist
+}
+
+func (c *countingStore) Save(entry session.Entry) error {
+	return nil
+}
+
+func (c *countingStore) Delete(id string) error {
+	return nil
+}
+
 type auditEntry struct {
 	event  string
 	fields map[string]any
@@ -265,6 +292,60 @@ func TestToggleSplitView(t *testing.T) {
 	}
 }
 
+func TestRenderSplitPanelUsesCachedMessagesInsteadOfRepeatedLoad(t *testing.T) {
+	store := &countingStore{entries: map[string]*session.Entry{
+		"s2": {
+			ID: "s2",
+			Messages: []client.Message{
+				{Role: "assistant", Content: "cached split content"},
+			},
+		},
+	}}
+	m := Model{
+		store:          store,
+		sessionID:      "s1",
+		splitEnabled:   true,
+		splitSessionID: "s2",
+	}
+	m.loadSplitSession()
+	if store.loads != 1 {
+		t.Fatalf("expected one Load during loadSplitSession, got %d", store.loads)
+	}
+	for i := 0; i < 3; i++ {
+		got := m.renderSplitPanel()
+		if !strings.Contains(got, "cached split") {
+			t.Fatalf("render %d missing cached split content: %q", i, got)
+		}
+	}
+	if store.loads != 1 {
+		t.Fatalf("expected renderSplitPanel to use cache without further Load, got %d loads", store.loads)
+	}
+}
+
+func TestHandleSplitKeyLoadsSplitSession(t *testing.T) {
+	store := &countingStore{entries: map[string]*session.Entry{
+		"s2": {ID: "s2", Messages: []client.Message{{Role: "assistant", Content: "s2 content"}}},
+		"s3": {ID: "s3", Messages: []client.Message{{Role: "assistant", Content: "s3 content"}}},
+	}}
+	m := Model{
+		store:          store,
+		sessionID:      "s1",
+		tabs:           []session.Entry{{ID: "s1"}, {ID: "s2"}, {ID: "s3"}},
+		splitEnabled:   true,
+		splitSessionID: "s2",
+	}
+	m.loadSplitSession()
+	if !m.handleSplitKey("]") || m.splitSessionID != "s3" {
+		t.Fatalf("unexpected split session after ]: %q", m.splitSessionID)
+	}
+	if store.loads != 2 {
+		t.Fatalf("expected handleSplitKey to load the new split session, got %d loads", store.loads)
+	}
+	if !strings.Contains(m.renderSplitPanel(), "s3 content") {
+		t.Fatalf("renderSplitPanel did not show newly loaded split session")
+	}
+}
+
 func TestBackupRestore(t *testing.T) {
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "repo")
@@ -292,6 +373,51 @@ func TestBackupRestore(t *testing.T) {
 	}
 	if string(data) != "old" {
 		t.Fatalf("unexpected restored content: %q", data)
+	}
+}
+
+func TestApplyDiffRollbackRemovesNewFile(t *testing.T) {
+	repo := t.TempDir()
+	if err := exec.Command("git", "-C", repo, "init").Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := Model{
+		cfg:       &config.Config{DataDir: t.TempDir(), Workspace: repo},
+		sessionID: "s1",
+		diffs: []any{
+			map[string]any{
+				"file": "a.txt",
+				"diff": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n",
+			},
+			map[string]any{
+				"file": "new.txt",
+				"diff": "diff --git a/new.txt b/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1 @@\n+newly added\n",
+			},
+		},
+		diffDecisions: map[int]string{0: "accepted", 1: "accepted"},
+	}
+	if _, err := m.applyAcceptedDiffsWithFilter(nil); err != nil {
+		t.Fatalf("apply diff: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(repo, "a.txt")); err != nil || string(data) != "new\n" {
+		t.Fatalf("expected a.txt updated, got %q, err %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "new.txt")); err != nil {
+		t.Fatalf("expected new.txt to be created by apply: %v", err)
+	}
+
+	if err := m.restoreBackup(m.lastBackupDir, repo); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(repo, "a.txt")); err != nil || string(data) != "old\n" {
+		t.Fatalf("expected a.txt restored, got %q, err %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "new.txt")); !os.IsNotExist(err) {
+		t.Fatalf("expected new.txt to be removed by rollback, stat err = %v", err)
 	}
 }
 
@@ -479,6 +605,58 @@ func TestSyncSkillsFromMessagesMergesRemote(t *testing.T) {
 	}
 	if m.skills[1].Name != "remote" || m.skills[1].Source != "remote" || m.skills[1].Description != "remote desc" {
 		t.Fatalf("unexpected second skill: %#v", m.skills[1])
+	}
+}
+
+func TestSyncSkillsFromMessagesSkipsMessagesWithoutMarker(t *testing.T) {
+	origParse := parseAvailableSkills
+	calls := 0
+	parseAvailableSkills = func(text string) []skill.Entry {
+		calls++
+		return origParse(text)
+	}
+	t.Cleanup(func() { parseAvailableSkills = origParse })
+
+	m := Model{
+		localSkills: []skill.Entry{{Name: "local", Description: "local", Source: "local", Enabled: true}},
+		skills:      []skill.Entry{{Name: "local", Description: "local", Source: "local", Enabled: true}},
+		messages: []client.Message{
+			{Role: "user", Content: "hello without any skill marker"},
+			{Role: "assistant", Content: "ordinary streaming text"},
+		},
+	}
+	m.syncSkillsFromMessages()
+	if calls != 0 {
+		t.Fatalf("expected no ParseAvailableSkills calls for messages without marker, got %d", calls)
+	}
+	if len(m.skills) != 1 || m.skills[0].Name != "local" {
+		t.Fatalf("unexpected skills after skip: %#v", m.skills)
+	}
+}
+
+func TestSyncSkillsFromMessagesParsesMessagesWithMarker(t *testing.T) {
+	origParse := parseAvailableSkills
+	calls := 0
+	parseAvailableSkills = func(text string) []skill.Entry {
+		calls++
+		return origParse(text)
+	}
+	t.Cleanup(func() { parseAvailableSkills = origParse })
+
+	m := Model{
+		localSkills: []skill.Entry{{Name: "local", Description: "local", Source: "local", Enabled: true}},
+		skills:      []skill.Entry{{Name: "local", Description: "local", Source: "local", Enabled: true}},
+		messages: []client.Message{
+			{Role: "user", Content: "no marker here"},
+			{Role: "assistant", Content: "<available_skills>\n- remote: remote desc\n</available_skills>"},
+		},
+	}
+	m.syncSkillsFromMessages()
+	if calls != 1 {
+		t.Fatalf("expected exactly one ParseAvailableSkills call for the marker message, got %d", calls)
+	}
+	if len(m.skills) != 2 || m.skills[1].Name != "remote" {
+		t.Fatalf("expected remote skill parsed, got %#v", m.skills)
 	}
 }
 

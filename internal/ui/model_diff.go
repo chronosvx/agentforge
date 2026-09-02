@@ -220,6 +220,8 @@ func cleanDiffPath(file string) (string, error) {
 	return clean, nil
 }
 
+const addedBackupManifestSuffix = ".added-files"
+
 func (m *Model) backupFiles(files []string, repoDir string) (string, error) {
 	if len(files) == 0 {
 		return "", fmt.Errorf("no files to backup")
@@ -232,17 +234,24 @@ func (m *Model) backupFiles(files []string, repoDir string) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
+
+	var added []string
 	for _, file := range files {
 		safe, err := cleanDiffPath(file)
 		if err != nil {
 			return "", err
 		}
 		src := filepath.Join(repoDir, safe)
-		data, err := os.ReadFile(src)
+		info, err := os.Stat(src)
 		if err != nil {
 			if os.IsNotExist(err) {
+				added = append(added, safe)
 				continue
 			}
+			return "", err
+		}
+		data, err := os.ReadFile(src)
+		if err != nil {
 			return "", err
 		}
 		dst := filepath.Join(dir, safe)
@@ -252,12 +261,22 @@ func (m *Model) backupFiles(files []string, repoDir string) (string, error) {
 		if err := os.WriteFile(dst, data, 0o600); err != nil {
 			return "", err
 		}
+		if err := os.Chmod(dst, info.Mode().Perm()); err != nil {
+			return "", err
+		}
+	}
+
+	if len(added) > 0 {
+		manifest := dir + addedBackupManifestSuffix
+		if err := os.WriteFile(manifest, []byte(strings.Join(added, "\n")+"\n"), 0o600); err != nil {
+			return "", err
+		}
 	}
 	return dir, nil
 }
 
 func (m *Model) restoreBackup(backupDir, repoDir string) error {
-	return filepath.Walk(backupDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(backupDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -281,6 +300,31 @@ func (m *Model) restoreBackup(backupDir, repoDir string) error {
 		}
 		return os.WriteFile(dst, data, info.Mode().Perm())
 	})
+	if err != nil {
+		return err
+	}
+
+	manifestPath := backupDir + addedBackupManifestSuffix
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, file := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if file == "" {
+			continue
+		}
+		safe, err := cleanDiffPath(file)
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(filepath.Join(repoDir, safe)); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 func (m *Model) applyAcceptedDiffs() (string, error) {

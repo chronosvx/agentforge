@@ -41,12 +41,13 @@ type OpenAIConfig struct {
 
 // openAIClient 是 OpenAI 兼容协议的 Provider 实现。
 type openAIClient struct {
-	baseURL        string
-	apiKey         string
-	model          string
-	idempotencyKey string
-	httpClient     *http.Client
-	estimator      *cost.Estimator
+	baseURL          string
+	apiKey           string
+	model            string
+	idempotencyKey   string
+	httpClient       *http.Client
+	streamHTTPClient *http.Client
+	estimator        *cost.Estimator
 }
 
 // NewOpenAI 创建 OpenAI 兼容 Provider。
@@ -58,12 +59,13 @@ func NewOpenAI(cfg OpenAIConfig) Provider {
 		cfg.Timeout = 60 * time.Second
 	}
 	return &openAIClient{
-		baseURL:        strings.TrimRight(cfg.BaseURL, "/"),
-		apiKey:         cfg.APIKey,
-		model:          cfg.Model,
-		idempotencyKey: cfg.IdempotencyKey,
-		httpClient:     newHTTPClient(cfg.Timeout, cfg.ProxyURL),
-		estimator:      cost.NewEstimator(),
+		baseURL:          strings.TrimRight(cfg.BaseURL, "/"),
+		apiKey:           cfg.APIKey,
+		model:            cfg.Model,
+		idempotencyKey:   cfg.IdempotencyKey,
+		httpClient:       newHTTPClient(cfg.Timeout, cfg.ProxyURL),
+		streamHTTPClient: newStreamHTTPClient(cfg.ProxyURL),
+		estimator:        cost.NewEstimator(),
 	}
 }
 
@@ -139,7 +141,11 @@ func (c *openAIClient) StreamChat(ctx context.Context, req ChatRequest) (<-chan 
 	}
 	c.setHeaders(httpReq, true, req)
 
-	resp, err := c.httpClient.Do(httpReq)
+	httpClient := c.streamHTTPClient
+	if httpClient == nil {
+		httpClient = c.httpClient
+	}
+	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("provider openai: send stream request: %w", err)
 	}

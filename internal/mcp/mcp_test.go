@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,7 +11,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -163,6 +166,137 @@ func TestStdioClient(t *testing.T) {
 	if !ok || text != "from stdio" {
 		t.Fatalf("unexpected stdio call result: %#v", result)
 	}
+}
+
+func TestStdioContextCancelKillsChild(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("pid signal check is not implemented on windows")
+	}
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "server.pid")
+	bin := buildStdioBinary(t, dir, "hang", hangingStdioSource(pidFile))
+
+	cl := New(bin)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- cl.Initialize(ctx)
+	}()
+
+	pid := waitForPIDFile(t, pidFile, 3*time.Second)
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled after cancel, got %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Initialize did not return after context cancellation")
+	}
+
+	if err := cl.Close(); err != nil {
+		t.Fatalf("close after context cancellation: %v", err)
+	}
+	waitProcessGone(t, pid, 3*time.Second)
+}
+
+func TestStdioCloseDoesNotHangOnStuckChild(t *testing.T) {
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "server.pid")
+	bin := buildStdioBinary(t, dir, "hang", hangingStdioSource(pidFile))
+
+	cl := New(bin)
+	done := make(chan error, 1)
+	go func() {
+		done <- cl.Initialize(context.Background())
+	}()
+
+	pid := waitForPIDFile(t, pidFile, 3*time.Second)
+
+	start := time.Now()
+	err := cl.Close()
+	elapsed := time.Since(start)
+	if elapsed > 3*time.Second {
+		t.Fatalf("Close blocked too long: %v", elapsed)
+	}
+	if err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("in-flight stdio call was not unblocked by Close")
+	}
+	if runtime.GOOS != "windows" {
+		waitProcessGone(t, pid, 3*time.Second)
+	}
+}
+
+func buildStdioBinary(t *testing.T, dir, name, source string) string {
+	t.Helper()
+	src := filepath.Join(dir, name+".go")
+	if err := os.WriteFile(src, []byte(source), 0o600); err != nil {
+		t.Fatalf("write %s source: %v", name, err)
+	}
+	bin := filepath.Join(dir, name)
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	cmd := exec.Command("go", "build", "-o", bin, src)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build %s: %v\n%s", name, err, out)
+	}
+	return bin
+}
+
+func hangingStdioSource(pidFile string) string {
+	return fmt.Sprintf(`package main
+
+import (
+	"os"
+	"strconv"
+	"time"
+)
+
+func main() {
+	_ = os.WriteFile(%q, []byte(strconv.Itoa(os.Getpid())), 0o600)
+	for {
+		time.Sleep(time.Hour)
+	}
+}
+`, pidFile)
+}
+
+func waitForPIDFile(t *testing.T, path string, timeout time.Duration) int {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+			if err == nil && pid > 0 {
+				return pid
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for pid file %s", path)
+	return 0
+}
+
+func waitProcessGone(t *testing.T, pid int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		err := syscall.Kill(pid, 0)
+		if err != nil && err != syscall.EPERM {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("process %d still exists after timeout", pid)
 }
 
 func writeMCPResponse(t *testing.T, w http.ResponseWriter, req Request) {

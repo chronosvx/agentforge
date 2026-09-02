@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +36,55 @@ func TestRunSetupStdinUnavailableReturnsError(t *testing.T) {
 
 	if _, statErr := os.Stat(filepath.Join(dir, "config.json")); !os.IsNotExist(statErr) {
 		t.Fatalf("config should not be written when setup cannot read stdin: %v", statErr)
+	}
+}
+
+// TestAskSetupSecretMasksExistingValue 验证 setup 的敏感字段默认值不会明文回显，
+// 且用户留空时保留原有值而不是写入占位符。
+func TestAskSetupSecretMasksExistingValue(t *testing.T) {
+	oldStdin := os.Stdin
+	oldStdout := os.Stdout
+	inR, inW, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdin pipe: %v", err)
+	}
+	os.Stdin = inR
+	if _, err := inW.WriteString("\n"); err != nil {
+		t.Fatalf("write stdin: %v", err)
+	}
+	_ = inW.Close()
+	defer func() {
+		os.Stdin = oldStdin
+		_ = inR.Close()
+	}()
+
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdout pipe: %v", err)
+	}
+	os.Stdout = outW
+	defer func() {
+		os.Stdout = oldStdout
+		_ = outR.Close()
+	}()
+
+	reader := bufio.NewReader(inR)
+	got, err := askSetupSecret(reader, "Provider API Key", "sk-super-secret", false)
+	_ = outW.Close()
+	out, _ := io.ReadAll(outR)
+
+	if err != nil {
+		t.Fatalf("askSetupSecret: %v", err)
+	}
+	if got != "sk-super-secret" {
+		t.Fatalf("askSetupSecret with blank input = %q, want existing value preserved", got)
+	}
+	text := string(out)
+	if strings.Contains(text, "sk-super-secret") {
+		t.Fatalf("setup prompt leaked the current secret value: %q", text)
+	}
+	if !strings.Contains(text, "[已设置]") {
+		t.Fatalf("setup prompt should display masked default marker, got: %q", text)
 	}
 }
 

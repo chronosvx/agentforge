@@ -262,6 +262,10 @@ type Model struct {
 	splitEnabled   bool
 	splitSessionID string
 
+	// splitMessages 缓存分屏会话的消息，避免 renderSplitPanel 每帧从磁盘 Load。
+	splitMessages       []client.Message
+	splitMessagesLoaded bool
+
 	// Virtual scrolling / incremental rendering state.
 	dirty                 bool
 	followBottom          bool
@@ -552,7 +556,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		if m.mcpClient != nil {
-			_ = m.mcpClient.Close()
+			oldClient := m.mcpClient
+			go func() {
+				_ = oldClient.Close()
+			}()
 		}
 		m.mcpClient = msg.client
 		m.mcpTools = msg.tools
@@ -625,6 +632,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cancel()
 		}
 		m.sessionEpoch++
+		// 若分屏正在展示即将离开的当前会话，先把内存中的最新消息转成缓存，
+		// 避免切换后 renderSplitPanel 读到的是旧的磁盘快照。
+		if m.splitEnabled && m.splitSessionID == m.sessionID && m.splitSessionID != msg.id {
+			m.splitMessages = append([]client.Message(nil), m.messages...)
+			m.splitMessagesLoaded = true
+		}
 		m.sessionID = msg.id
 		m.sessionTitle = ""
 		m.auditEvent("session.switch", map[string]any{"sessionId": msg.id})
@@ -1058,6 +1071,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cancel()
 		}
 		m.sessionEpoch++
+		if m.splitEnabled && m.splitSessionID == m.sessionID && m.splitSessionID != "" {
+			m.splitMessages = append([]client.Message(nil), m.messages...)
+			m.splitMessagesLoaded = true
+		}
 		m.sessionID = ""
 		m.sessionTitle = ""
 		m.auditEvent("session.new", map[string]any{"previousSessionId": previousSessionID})
@@ -1142,6 +1159,8 @@ func (m *Model) applyLayout() {
 		m.rightPanel = false
 		m.splitEnabled = false
 		m.splitSessionID = ""
+		m.splitMessages = nil
+		m.splitMessagesLoaded = false
 	}
 	if len(m.tabs) > 0 {
 		mainWidth -= sidebarWidth + 2
@@ -1508,10 +1527,19 @@ func (m *Model) syncToolsFromState(state map[string]any) {
 	}
 }
 
+// parseAvailableSkills 是 skill.ParseAvailableSkills 的包级间接层，便于测试验证
+// syncSkillsFromMessages 的廉价预检确实避免了对普通消息执行完整解析。
+var parseAvailableSkills = skill.ParseAvailableSkills
+
 func (m *Model) syncSkillsFromMessages() {
 	var remote []skill.Entry
 	for _, msg := range m.messages {
-		remote = append(remote, skill.ParseAvailableSkills(msg.Content)...)
+		// 大多数事件消息不包含技能清单；先用 strings.Contains 做廉价预检，
+		// 避免每条消息都进入正则/JSON 解析。
+		if !strings.Contains(msg.Content, "<available_skills>") {
+			continue
+		}
+		remote = append(remote, parseAvailableSkills(msg.Content)...)
 	}
 	if len(remote) > 0 {
 		m.remoteSkills = remote

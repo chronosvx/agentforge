@@ -48,12 +48,54 @@ func LoadFile(path string) (map[string]string, error) {
 	return out, sc.Err()
 }
 
-// DefaultPaths 返回用户配置与项目配置路径。
+// projectConfigName 是仓库/项目目录中可能存在的项目级配置文件名。
+//
+// 项目级配置默认不再自动加载；即使用户显式通过 --config 指定它，也只允许
+// 修改非敏感字段，防止仓库投毒修改连接目标、关闭审计或泄露凭据。
+const projectConfigName = ".agentforge.json"
+
+// projectRestrictedConfigKeys 列出项目配置中禁止应用的敏感/安全关键字段。
+var projectRestrictedConfigKeys = map[string]bool{
+	"api-url":             true,
+	"api-token":           true,
+	"remote":              true,
+	"endpoint":            true,
+	"data-dir":            true,
+	"provider-key":        true,
+	"provider-base-url":   true,
+	"secret-key":          true,
+	"confirm-data-export": true,
+	"no-audit":            true,
+	// 该开关用于显式放行非 loopback 明文连接；不能让项目配置文件替用户放行。
+	"allow-insecure-http": true,
+}
+
+// isProjectConfigPath 报告 path 是否为项目级 .agentforge.json。
+func isProjectConfigPath(path string) bool {
+	return filepath.Base(path) == projectConfigName
+}
+
+// sanitizeProjectConfig 返回移除了所有项目级敏感/安全关键字段后的配置。
+// 调用方不应修改原 map。
+func sanitizeProjectConfig(kv map[string]string) map[string]string {
+	out := make(map[string]string, len(kv))
+	for k, v := range kv {
+		if !projectRestrictedConfigKeys[k] {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// DefaultPaths 返回默认自动加载的配置路径。
+//
+// 只包含用户级配置；不再自动加载项目目录中的 .agentforge.json，以避免仓库
+// 投毒、凭据外发和审计关闭等风险。项目级配置仍可通过显式 --config 使用，
+// 但敏感字段会被过滤。
 func DefaultPaths() []string {
 	home, _ := os.UserHomeDir()
 	user := filepath.Join(home, ".agentforge", "config.json")
-	project := ".agentforge.json"
-	return []string{user, project}
+	return []string{user}
 }
 
 // applyConfig 将配置 map 应用到未由 CLI 显式设置的字段。
@@ -121,6 +163,9 @@ func applyConfig(cfg *Config, kv map[string]string, setFlags map[string]bool) {
 	}
 	if !set("no-color") && kv["no-color"] != "" {
 		cfg.NoColor, _ = strconv.ParseBool(kv["no-color"])
+	}
+	if !set("allow-insecure-http") && kv["allow-insecure-http"] != "" {
+		cfg.AllowInsecureHTTP, _ = strconv.ParseBool(kv["allow-insecure-http"])
 	}
 	if !set("user") && kv["user"] != "" {
 		cfg.User = kv["user"]

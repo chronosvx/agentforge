@@ -289,12 +289,14 @@ func ParseLocal(name, content string) Entry {
 	return e
 }
 
+// availableSkillsRe 在包初始化时编译一次，避免每次解析会话文本都重复编译正则。
+var availableSkillsRe = regexp.MustCompile(`(?is)<available_skills[^>]*>(.*?)</available_skills>`)
+
 // ParseAvailableSkills 从会话文本中提取 <available_skills> 块。
 // 支持 Markdown 列表行（- name: desc）和 JSON 数组两种常见形式。
 func ParseAvailableSkills(text string) []Entry {
-	re := regexp.MustCompile(`(?is)<available_skills[^>]*>(.*?)</available_skills>`)
 	var out []Entry
-	for _, match := range re.FindAllStringSubmatch(text, -1) {
+	for _, match := range availableSkillsRe.FindAllStringSubmatch(text, -1) {
 		out = append(out, parseAvailableBlock(match[1])...)
 	}
 	return out

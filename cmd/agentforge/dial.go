@@ -188,22 +188,81 @@ func warnIfDataExport(cfg *config.Config) {
 	}
 }
 
-// warnIfInsecureRemote 在远程模式下对非 loopback 且未使用 https/wss 的
-// 连接地址打印安全警告，提醒用户数据可能明文传输。
+// insecureTarget 描述一个需要安全审查的连接地址。
+type insecureTarget struct {
+	kind          string
+	raw           string
+	hasCredential bool
+}
+
+// insecureRemoteTargets 返回配置中所有“非 loopback 且明文 HTTP/WS”的连接地址。
+// 该检查不依赖 --remote：只要用户配置了远程明文地址就应提示/拦截。
+func insecureRemoteTargets(cfg *config.Config) []insecureTarget {
+	if cfg == nil {
+		return nil
+	}
+	var out []insecureTarget
+	if cfg.APIURL != "" && isInsecureRemoteURL(cfg.APIURL) {
+		out = append(out, insecureTarget{kind: "api-url", raw: cfg.APIURL, hasCredential: cfg.APIToken != ""})
+	}
+	if cfg.Endpoint != "" && isInsecureRemoteURL(cfg.Endpoint) {
+		out = append(out, insecureTarget{kind: "endpoint", raw: cfg.Endpoint})
+	}
+	if cfg.ProviderBaseURL != "" && isInsecureRemoteURL(cfg.ProviderBaseURL) {
+		out = append(out, insecureTarget{kind: "provider-base-url", raw: cfg.ProviderBaseURL, hasCredential: cfg.ProviderKey != ""})
+	}
+	return out
+}
+
+// warnIfInsecureRemote 对非 loopback 且未使用 https/wss 的连接地址打印安全警告。
+// 该函数只负责提示；强制拒绝由 checkInsecureRemote 处理。
 func warnIfInsecureRemote(cfg *config.Config) {
-	if cfg == nil || !cfg.Remote {
+	if cfg == nil {
 		return
 	}
-	for _, raw := range []string{cfg.APIURL, cfg.Endpoint} {
-		if raw == "" {
-			continue
-		}
-		if isInsecureRemoteURL(raw) {
+	for _, t := range insecureRemoteTargets(cfg) {
+		fmt.Fprintf(os.Stderr,
+			"agentforge: warning: %s %q is not using https/wss and is not loopback; data may be transmitted insecurely\n",
+			t.kind, t.raw)
+	}
+}
+
+// checkInsecureRemote 对非 loopback 明文 HTTP/WS 执行安全检查。
+//
+// 无条件（不依赖 --remote）检测 api-url、endpoint 与 provider-base-url；
+// 若连接会携带 token/key 且用户未显式设置 --allow-insecure-http，则返回错误，
+// 默认拒绝该连接。没有凭据的明文远程连接仍输出高危警告，但不强制拒绝。
+func checkInsecureRemote(cfg *config.Config) error {
+	if cfg == nil {
+		return nil
+	}
+	targets := insecureRemoteTargets(cfg)
+	if len(targets) == 0 {
+		return nil
+	}
+
+	refused := false
+	for _, t := range targets {
+		switch {
+		case cfg.AllowInsecureHTTP:
 			fmt.Fprintf(os.Stderr,
-				"agentforge: warning: remote address %q is not using https/wss and is not loopback; token and data may be transmitted insecurely\n",
-				raw)
+				"agentforge: warning: %s %q is non-loopback plaintext; continuing because --allow-insecure-http is set\n",
+				t.kind, t.raw)
+		case t.hasCredential:
+			fmt.Fprintf(os.Stderr,
+				"agentforge: HIGH-RISK warning: refusing %s %q because credentials would be sent over non-loopback plaintext\n",
+				t.kind, t.raw)
+			refused = true
+		default:
+			fmt.Fprintf(os.Stderr,
+				"agentforge: HIGH-RISK warning: %s %q is non-loopback plaintext; data may be transmitted insecurely\n",
+				t.kind, t.raw)
 		}
 	}
+	if refused {
+		return fmt.Errorf("agentforge: refusing insecure non-loopback plaintext connection; use --allow-insecure-http only if you understand the risk")
+	}
+	return nil
 }
 
 // isInsecureRemoteURL 判断 URL 是否属于“非 loopback 且非加密”的远程地址。

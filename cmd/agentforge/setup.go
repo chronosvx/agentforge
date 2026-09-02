@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/charmbracelet/x/term"
 )
 
 // runSetup 实现 `agentforge setup`：以向导方式选择后端并生成/更新配置。
@@ -69,7 +71,7 @@ func runSetup(args []string) error {
 			cfg["api-url"] = apiURL
 		}
 
-		apiToken, err := askSetupValue(reader, "DSH Web API Token（可留空）", configString(cfg["api-token"]), false)
+		apiToken, err := askSetupSecret(reader, "DSH Web API Token（可留空）", configString(cfg["api-token"]), false)
 		if err != nil {
 			return err
 		}
@@ -93,7 +95,7 @@ func runSetup(args []string) error {
 			cfg["model"] = model
 		}
 
-		providerKey, err := askSetupValue(reader, "Provider API Key（输入可见）", configString(cfg["provider-key"]), false)
+		providerKey, err := askSetupSecret(reader, "Provider API Key（输入隐藏）", configString(cfg["provider-key"]), false)
 		if err != nil {
 			return err
 		}
@@ -177,6 +179,57 @@ func askSetupValue(reader *bufio.Reader, label, current string, required bool) (
 		}
 		fmt.Println("该项不能为空，请重新输入。")
 	}
+}
+
+// askSetupSecret 读取敏感字段。current 是已有配置值，但提示中只显示 [已设置]，
+// 不会把明文密钥打印到终端；在支持无回显输入的终端上会关闭本地回显。
+func askSetupSecret(reader *bufio.Reader, label, current string, required bool) (string, error) {
+	for {
+		prompt := label
+		if current != "" {
+			prompt += " [已设置]"
+		}
+		prompt += ": "
+
+		value, err := readSecretInput(reader, prompt)
+		if err != nil {
+			return "", fmt.Errorf("setup: 读取%s失败: %w", label, err)
+		}
+		if value != "" {
+			return value, nil
+		}
+		if current != "" {
+			return current, nil
+		}
+		if !required {
+			return "", nil
+		}
+		fmt.Println("该项不能为空，请重新输入。")
+	}
+}
+
+// readSecretInput 输出 prompt 后读取一行敏感输入。
+//
+// 在终端上使用 x/term 关闭本地回显；在非终端（管道、测试）中回退到普通
+// bufio 读取，便于脚本和非交互调用继续工作。
+func readSecretInput(reader *bufio.Reader, prompt string) (string, error) {
+	fmt.Print(prompt)
+	if term.IsTerminal(os.Stdin.Fd()) {
+		data, err := term.ReadPassword(os.Stdin.Fd())
+		fmt.Println()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(data)), nil
+	}
+
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		if line == "" {
+			return "", err
+		}
+	}
+	return strings.TrimSpace(line), nil
 }
 
 // configString 将配置值转为用于提示的字符串。

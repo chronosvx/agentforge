@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/chronosvx/agentforge/internal/config"
 )
@@ -86,13 +85,11 @@ func runInit(args []string) error {
 
 	// Provider Key：仅当本次显式指定 provider 且未使用 keychain 时提示输入。
 	if *provider != "" && !*keychain {
-		fmt.Print("Enter provider key (input will be visible): ")
 		reader := bufio.NewReader(os.Stdin)
-		line, err := reader.ReadString('\n')
-		if err != nil && line == "" {
+		key, err := readSecretInput(reader, "Enter provider key (input hidden; leave empty to keep existing): ")
+		if err != nil {
 			return err
 		}
-		key := strings.TrimSpace(line)
 		if key != "" {
 			cfg["provider-key"] = key
 		}

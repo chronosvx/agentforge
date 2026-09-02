@@ -128,6 +128,13 @@ func TestParseAvailableSkillsJSON(t *testing.T) {
 	}
 }
 
+func TestParseAvailableSkillsWithoutMarkerReturnsEmpty(t *testing.T) {
+	entries := ParseAvailableSkills("ordinary conversation text without the marker")
+	if len(entries) != 0 {
+		t.Fatalf("expected no entries, got %d: %#v", len(entries), entries)
+	}
+}
+
 func TestParseRemoteValue(t *testing.T) {
 	got := ParseRemoteValue([]any{
 		map[string]any{"name": "alpha", "description": "Alpha"},

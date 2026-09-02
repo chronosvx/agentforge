@@ -123,7 +123,6 @@ func run() error {
 		_ = telemetry.Record("app.started", map[string]any{"version": version})
 	}
 
-	warnIfInsecureRemote(cfg)
 	warnIfDataExport(cfg)
 
 	auditLog := newAuditLogger(cfg.DataDir, !cfg.NoAudit)
@@ -134,6 +133,10 @@ func run() error {
 	})
 
 	if err := resolveProviderKey(cfg); err != nil {
+		return err
+	}
+
+	if err := checkInsecureRemote(cfg); err != nil {
 		return err
 	}
 

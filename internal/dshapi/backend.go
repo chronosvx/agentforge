@@ -59,7 +59,9 @@ func (b *Backend) Open(ctx context.Context, workspace, sessionID string, options
 		b.cancel()
 		b.cancel = nil
 	}
-	muxCtx, cancel := context.WithCancel(ctx)
+	// mux 的生命周期只由 Backend 自己管理：从调用方 context 剥离取消信号，
+	// 避免 UI 的短生命周期 openCtx 取消后把 events.mux 一并关掉。
+	muxCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	mux, err := b.api.OpenMux(muxCtx)
 	if err != nil {
 		cancel()
