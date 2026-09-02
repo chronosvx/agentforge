@@ -7,7 +7,6 @@ import (
 
 	"github.com/chronosvx/agentforge/internal/client"
 	"github.com/chronosvx/agentforge/internal/contextx"
-	"github.com/chronosvx/agentforge/internal/timeline"
 )
 
 // handleCheckpointCommand 处理 /checkpoint 命令。
@@ -23,7 +22,7 @@ func (m *Model) handleCheckpointCommand(cmd string) {
 		return
 	}
 	if m.timeline == nil {
-		m.timeline = timeline.New()
+		m.timeline = contextx.NewTimeline()
 	}
 	data, err := json.Marshal(m.messages)
 	if err != nil {
@@ -56,7 +55,7 @@ func (m *Model) handleRewindCommand(cmd string) {
 		}
 	}
 	if m.timeline == nil {
-		m.timeline = timeline.New()
+		m.timeline = contextx.NewTimeline()
 	}
 	snap, err := m.timeline.Rewind(name)
 	if err != nil {
@@ -82,7 +81,7 @@ func (m *Model) handleRewindCommand(cmd string) {
 // handleTimelineCommand 处理 /timeline 命令。
 func (m *Model) handleTimelineCommand() {
 	if m.timeline == nil {
-		m.timeline = timeline.New()
+		m.timeline = contextx.NewTimeline()
 	}
 	snapshots := m.timeline.List()
 	if len(snapshots) == 0 {
@@ -109,7 +108,7 @@ func (m *Model) handleForkCommand(cmd string) {
 		return
 	}
 	if m.timeline == nil {
-		m.timeline = timeline.New()
+		m.timeline = contextx.NewTimeline()
 	}
 	snap := m.timeline.Fork(label, data)
 	m.status = "forked timeline: " + snap.ID

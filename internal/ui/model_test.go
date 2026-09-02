@@ -17,7 +17,7 @@ import (
 	"github.com/chronosvx/agentforge/internal/client"
 	"github.com/chronosvx/agentforge/internal/config"
 	"github.com/chronosvx/agentforge/internal/i18n"
-	"github.com/chronosvx/agentforge/internal/mcpperm"
+	"github.com/chronosvx/agentforge/internal/mcp"
 	"github.com/chronosvx/agentforge/internal/multiagent"
 	"github.com/chronosvx/agentforge/internal/plugin"
 	"github.com/chronosvx/agentforge/internal/security"
@@ -1623,8 +1623,8 @@ func TestMCPCallDeniedReturnsErrorAndRecordsAudit(t *testing.T) {
 
 func TestMCPConfirmDoesNotCallToolImmediately(t *testing.T) {
 	m := Model{
-		mcpPolicy: mcpperm.NewPolicy(mcpperm.ModeConfirm),
-		mcpAudit:  mcpperm.NewAuditLog(),
+		mcpPolicy: mcp.NewPolicy(mcp.ModeConfirm),
+		mcpAudit:  mcp.NewAuditLog(),
 		mcpClient: nil,
 	}
 
@@ -1646,8 +1646,8 @@ func TestMCPConfirmDoesNotCallToolImmediately(t *testing.T) {
 func TestMCPAuditEventCalled(t *testing.T) {
 	audit := &fakeAudit{}
 	m := Model{
-		mcpPolicy: mcpperm.NewPolicy(mcpperm.ModeDeny),
-		mcpAudit:  mcpperm.NewAuditLog(),
+		mcpPolicy: mcp.NewPolicy(mcp.ModeDeny),
+		mcpAudit:  mcp.NewAuditLog(),
 		auditFn:   audit.record,
 	}
 

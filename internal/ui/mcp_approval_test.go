@@ -5,13 +5,13 @@ import (
 	"testing"
 
 	"github.com/chronosvx/agentforge/internal/i18n"
-	"github.com/chronosvx/agentforge/internal/mcpperm"
+	"github.com/chronosvx/agentforge/internal/mcp"
 )
 
 func TestMCPCallCmdOpensApprovalPanel(t *testing.T) {
 	m := Model{
-		mcpPolicy: mcpperm.NewPolicy(mcpperm.ModeConfirm),
-		mcpAudit:  mcpperm.NewAuditLog(),
+		mcpPolicy: mcp.NewPolicy(mcp.ModeConfirm),
+		mcpAudit:  mcp.NewAuditLog(),
 	}
 
 	cmd := m.mcpCallCmd("files.read", map[string]any{"path": "/tmp"})
@@ -53,8 +53,8 @@ func TestHandleMCPApprovalKeyAlwaysAllow(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected always-allow to return an execute cmd")
 	}
-	if got := m.mcpPolicy.Mode("files.read"); got != mcpperm.ModeAuto {
-		t.Fatalf("policy mode after s = %q, want %q", got, mcpperm.ModeAuto)
+	if got := m.mcpPolicy.Mode("files.read"); got != mcp.ModeAuto {
+		t.Fatalf("policy mode after s = %q, want %q", got, mcp.ModeAuto)
 	}
 	assertMCPClosed(t, &m)
 	if m.status != i18n.T("mcp.always_allowed") {
@@ -86,8 +86,8 @@ func TestHandleMCPApprovalKeyDenyAndRemember(t *testing.T) {
 	if cmd != nil {
 		t.Fatalf("expected deny-and-remember to return nil cmd, got %T", cmd)
 	}
-	if got := m.mcpPolicy.Mode("files.read"); got != mcpperm.ModeDeny {
-		t.Fatalf("policy mode after n = %q, want %q", got, mcpperm.ModeDeny)
+	if got := m.mcpPolicy.Mode("files.read"); got != mcp.ModeDeny {
+		t.Fatalf("policy mode after n = %q, want %q", got, mcp.ModeDeny)
 	}
 	assertMCPClosed(t, &m)
 	if m.status != i18n.T("mcp.denied_and_remembered") {
@@ -121,15 +121,15 @@ func TestRenderMCPApprovalShowsToolAndHint(t *testing.T) {
 	if !strings.Contains(got, i18n.T("mcp.approval_title")) {
 		t.Fatalf("renderMCPApproval missing approval title:\n%s", got)
 	}
-	if !strings.Contains(got, string(mcpperm.ModeConfirm)) {
+	if !strings.Contains(got, string(mcp.ModeConfirm)) {
 		t.Fatalf("renderMCPApproval missing current policy:\n%s", got)
 	}
 }
 
 func pendingMCPModel() Model {
 	return Model{
-		mcpPolicy:      mcpperm.NewPolicy(mcpperm.ModeConfirm),
-		mcpAudit:       mcpperm.NewAuditLog(),
+		mcpPolicy:      mcp.NewPolicy(mcp.ModeConfirm),
+		mcpAudit:       mcp.NewAuditLog(),
 		mcpPendingOpen: true,
 		pendingMCPName: "files.read",
 		pendingMCPArgs: map[string]any{"path": "/tmp"},

@@ -1,6 +1,5 @@
-// Package mcpperm provides simple permission policy and audit utilities for
-// MCP tool calls.
-package mcpperm
+// This file contains MCP tool-call permission policy and audit utilities.
+package mcp
 
 import (
 	"strings"

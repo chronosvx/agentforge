@@ -1,5 +1,5 @@
-// Package timeline provides a small concurrency-safe snapshot timeline.
-package timeline
+// This file contains the concurrency-safe snapshot timeline used by the UI.
+package contextx
 
 import (
 	"errors"
@@ -31,6 +31,11 @@ var idCounter atomic.Uint64
 
 // New returns an empty Timeline.
 func New() *Timeline {
+	return NewTimeline()
+}
+
+// NewTimeline returns an empty Timeline.
+func NewTimeline() *Timeline {
 	return &Timeline{
 		nodes:   make([]Snapshot, 0),
 		current: -1,

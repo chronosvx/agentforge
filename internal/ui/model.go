@@ -21,7 +21,6 @@ import (
 	"github.com/chronosvx/agentforge/internal/contextx"
 	"github.com/chronosvx/agentforge/internal/i18n"
 	"github.com/chronosvx/agentforge/internal/mcp"
-	"github.com/chronosvx/agentforge/internal/mcpperm"
 	"github.com/chronosvx/agentforge/internal/memory"
 	"github.com/chronosvx/agentforge/internal/multiagent"
 	"github.com/chronosvx/agentforge/internal/plugin"
@@ -29,7 +28,6 @@ import (
 	"github.com/chronosvx/agentforge/internal/security"
 	"github.com/chronosvx/agentforge/internal/session"
 	"github.com/chronosvx/agentforge/internal/skill"
-	"github.com/chronosvx/agentforge/internal/timeline"
 )
 
 // ChatBackend 是 UI 层对聊天后端的抽象，支持 mock/tui channel/真实 DSH API。
@@ -211,14 +209,14 @@ type Model struct {
 	mcpClient      *mcp.Client
 	mcpTools       []mcp.Tool
 	mcpCursor      int
-	mcpPolicy      *mcpperm.Policy
-	mcpAudit       *mcpperm.AuditLog
+	mcpPolicy      *mcp.Policy
+	mcpAudit       *mcp.AuditLog
 	pendingMCPName string
 	pendingMCPArgs map[string]any
 	mcpPendingOpen bool
 	window         *contextx.Window
 	checkpoints    *contextx.CheckpointStore
-	timeline       *timeline.Timeline
+	timeline       *contextx.Timeline
 	memoryStore    *memory.MemoryStore
 
 	multiTasks   []multiagent.Task
@@ -308,9 +306,9 @@ func New(cfg *config.Config, cl ChatBackend, store session.LocalStore, auditFn .
 		costLimit:     cfg.CostLimit,
 		window:        contextx.NewWindow(),
 		checkpoints:   contextx.NewCheckpointStore(),
-		mcpPolicy:     mcpperm.NewPolicy(mcpperm.ModeConfirm),
-		mcpAudit:      mcpperm.NewAuditLog(),
-		timeline:      timeline.New(),
+		mcpPolicy:     mcp.NewPolicy(mcp.ModeConfirm),
+		mcpAudit:      mcp.NewAuditLog(),
+		timeline:      contextx.NewTimeline(),
 		followBottom:  true,
 	}
 	if cfg != nil {

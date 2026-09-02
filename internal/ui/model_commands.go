@@ -7,7 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/chronosvx/agentforge/internal/i18n"
-	"github.com/chronosvx/agentforge/internal/mcpperm"
+	"github.com/chronosvx/agentforge/internal/mcp"
 	"github.com/chronosvx/agentforge/internal/multiagent"
 	"github.com/chronosvx/agentforge/internal/search"
 	"github.com/chronosvx/agentforge/internal/session"
@@ -350,9 +350,9 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 			break
 		}
 		if m.mcpPolicy == nil {
-			m.mcpPolicy = mcpperm.NewPolicy(mcpperm.ModeConfirm)
+			m.mcpPolicy = mcp.NewPolicy(mcp.ModeConfirm)
 		}
-		m.mcpPolicy.Set(tool, mcpperm.ModeAuto)
+		m.mcpPolicy.Set(tool, mcp.ModeAuto)
 		m.status = "mcp policy auto: " + tool
 	case "/mcp-confirm":
 		tool := strings.TrimSpace(strings.TrimPrefix(cmd, "/mcp-confirm"))
@@ -361,9 +361,9 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 			break
 		}
 		if m.mcpPolicy == nil {
-			m.mcpPolicy = mcpperm.NewPolicy(mcpperm.ModeConfirm)
+			m.mcpPolicy = mcp.NewPolicy(mcp.ModeConfirm)
 		}
-		m.mcpPolicy.Set(tool, mcpperm.ModeConfirm)
+		m.mcpPolicy.Set(tool, mcp.ModeConfirm)
 		m.status = "mcp policy confirm: " + tool
 	case "/mcp-deny":
 		tool := strings.TrimSpace(strings.TrimPrefix(cmd, "/mcp-deny"))
@@ -372,13 +372,13 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 			break
 		}
 		if m.mcpPolicy == nil {
-			m.mcpPolicy = mcpperm.NewPolicy(mcpperm.ModeConfirm)
+			m.mcpPolicy = mcp.NewPolicy(mcp.ModeConfirm)
 		}
-		m.mcpPolicy.Set(tool, mcpperm.ModeDeny)
+		m.mcpPolicy.Set(tool, mcp.ModeDeny)
 		m.status = "mcp policy deny: " + tool
 	case "/mcp-audit":
 		if m.mcpAudit == nil {
-			m.mcpAudit = mcpperm.NewAuditLog()
+			m.mcpAudit = mcp.NewAuditLog()
 		}
 		entries := m.mcpAudit.List()
 		const maxAuditEntries = 5

@@ -12,7 +12,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/chronosvx/agentforge/internal/i18n"
 	"github.com/chronosvx/agentforge/internal/mcp"
-	"github.com/chronosvx/agentforge/internal/mcpperm"
 )
 
 func (m *Model) mcpConnectCmd(url string) tea.Cmd {
@@ -34,10 +33,10 @@ func (m *Model) mcpConnectCmd(url string) tea.Cmd {
 // mcpCallCmd 异步调用已连接的 MCP 工具；需要确认时挂起并打开审批面板。
 func (m *Model) mcpCallCmd(name string, args map[string]any) tea.Cmd {
 	if m.mcpPolicy == nil {
-		m.mcpPolicy = mcpperm.NewPolicy(mcpperm.ModeConfirm)
+		m.mcpPolicy = mcp.NewPolicy(mcp.ModeConfirm)
 	}
 	if m.mcpAudit == nil {
-		m.mcpAudit = mcpperm.NewAuditLog()
+		m.mcpAudit = mcp.NewAuditLog()
 	}
 	decision := m.mcpPolicy.Decide(name)
 	m.mcpAudit.Record(name, decision)
@@ -64,7 +63,7 @@ func (m *Model) mcpCallCmd(name string, args map[string]any) tea.Cmd {
 func (m *Model) executeMCPCall(name string, args map[string]any) tea.Cmd {
 	return func() tea.Msg {
 		if m.mcpPolicy == nil {
-			m.mcpPolicy = mcpperm.NewPolicy(mcpperm.ModeConfirm)
+			m.mcpPolicy = mcp.NewPolicy(mcp.ModeConfirm)
 		}
 		decision := m.mcpPolicy.Decide(name)
 		m.auditEvent("mcp.call", map[string]any{"tool": name, "mode": string(decision.Mode), "allowed": decision.Allowed, "requiresApproval": decision.RequiresApproval})
@@ -105,9 +104,9 @@ func (m *Model) handleMCPApprovalKey(key string) (bool, tea.Cmd) {
 		return true, m.executeMCPCall(name, args)
 	case "s":
 		if m.mcpPolicy == nil {
-			m.mcpPolicy = mcpperm.NewPolicy(mcpperm.ModeConfirm)
+			m.mcpPolicy = mcp.NewPolicy(mcp.ModeConfirm)
 		}
-		m.mcpPolicy.Set(name, mcpperm.ModeAuto)
+		m.mcpPolicy.Set(name, mcp.ModeAuto)
 		m.closeMCPApproval()
 		m.status = i18n.T("mcp.always_allowed")
 		return true, m.executeMCPCall(name, args)
@@ -117,9 +116,9 @@ func (m *Model) handleMCPApprovalKey(key string) (bool, tea.Cmd) {
 		return true, nil
 	case "n":
 		if m.mcpPolicy == nil {
-			m.mcpPolicy = mcpperm.NewPolicy(mcpperm.ModeConfirm)
+			m.mcpPolicy = mcp.NewPolicy(mcp.ModeConfirm)
 		}
-		m.mcpPolicy.Set(name, mcpperm.ModeDeny)
+		m.mcpPolicy.Set(name, mcp.ModeDeny)
 		m.closeMCPApproval()
 		m.status = i18n.T("mcp.denied_and_remembered")
 		return true, nil

@@ -1,4 +1,4 @@
-package persist_test
+package session
 
 import (
 	"context"
@@ -6,12 +6,10 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/chronosvx/agentforge/internal/persist"
 )
 
-func TestWriterSerialOrder(t *testing.T) {
-	w := persist.NewWriter(4)
+func TestAsyncWriterSerialOrder(t *testing.T) {
+	w := newAsyncWriter(4)
 	defer w.Close()
 
 	var mu sync.Mutex
@@ -48,8 +46,8 @@ func TestWriterSerialOrder(t *testing.T) {
 	}
 }
 
-func TestWriterErrorCollection(t *testing.T) {
-	w := persist.NewWriter(2)
+func TestAsyncWriterErrorCollection(t *testing.T) {
+	w := newAsyncWriter(2)
 	errCh := w.Errors()
 
 	var mu sync.Mutex
@@ -95,8 +93,8 @@ func TestWriterErrorCollection(t *testing.T) {
 	}
 }
 
-func TestWriterCloseFlushesPending(t *testing.T) {
-	w := persist.NewWriter(1)
+func TestAsyncWriterCloseFlushesPending(t *testing.T) {
+	w := newAsyncWriter(1)
 
 	var mu sync.Mutex
 	var got []int
@@ -129,8 +127,8 @@ func TestWriterCloseFlushesPending(t *testing.T) {
 	}
 }
 
-func TestWriterFlushRespectsContext(t *testing.T) {
-	w := persist.NewWriter(1)
+func TestAsyncWriterFlushRespectsContext(t *testing.T) {
+	w := newAsyncWriter(1)
 	defer w.Close()
 
 	block := make(chan struct{})

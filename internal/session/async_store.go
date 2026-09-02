@@ -4,17 +4,16 @@ import (
 	"context"
 
 	"github.com/chronosvx/agentforge/internal/client"
-	"github.com/chronosvx/agentforge/internal/persist"
 )
 
 // AsyncStore 包装 Store，把 Save 变为异步落盘，同时保持 Load/Delete 同步语义。
 //
-// Save 提交后立即返回（除 ID 校验等即时错误外），实际写盘由 internal/persist
-// 的后台 worker 串行完成。需要确认数据已落盘时可调用 Flush；后台写盘错误通过
+// Save 提交后立即返回（除 ID 校验等即时错误外），实际写盘由 session 包内的
+// 后台 worker 串行完成。需要确认数据已落盘时可调用 Flush；后台写盘错误通过
 // Errors 通道收集。
 type AsyncStore struct {
 	store  LocalStore
-	writer *persist.Writer
+	writer *asyncWriter
 }
 
 // NewAsyncStore 创建 AsyncStore。
@@ -23,7 +22,7 @@ type AsyncStore struct {
 func NewAsyncStore(store LocalStore, buffer int) *AsyncStore {
 	return &AsyncStore{
 		store:  store,
-		writer: persist.NewWriter(buffer),
+		writer: newAsyncWriter(buffer),
 	}
 }
 

@@ -1,9 +1,4 @@
-// Package persist 提供本地异步写入的通用队列。
-//
-// Writer 将耗时的持久化操作放到后台 goroutine 串行执行，调用方提交后
-// 无需等待写盘完成；通过 Flush 可以显式等待队列清空，通过 Errors 可以
-// 收集后台执行过程中产生的错误。
-package persist
+package session
 
 import (
 	"context"
@@ -12,12 +7,12 @@ import (
 	"sync"
 )
 
-// Writer 是一个线程安全的异步任务队列。
+// asyncWriter 是一个线程安全的异步任务队列。
 //
-// Submit 会立即返回（除非 Writer 已关闭），后台 worker 按提交顺序串行执行
+// Submit 会立即返回（除非 asyncWriter 已关闭），后台 worker 按提交顺序串行执行
 // 任务。Flush 等待当前已提交任务全部完成，Close 停止接收新任务并等待队列
 // 清空。
-type Writer struct {
+type asyncWriter struct {
 	mu    sync.Mutex
 	cond  *sync.Cond
 	queue []func() error
@@ -34,15 +29,15 @@ type Writer struct {
 	errCh     chan error
 }
 
-// NewWriter 创建一个异步 Writer。
+// newAsyncWriter 创建一个异步 asyncWriter。
 //
 // buffer 用于预分配任务队列容量，不影响 Submit 的即时返回语义；队列本身是
 // 无界队列，提交不会被缓冲区占满所阻塞。
-func NewWriter(buffer int) *Writer {
+func newAsyncWriter(buffer int) *asyncWriter {
 	if buffer < 0 {
 		buffer = 0
 	}
-	w := &Writer{
+	w := &asyncWriter{
 		queue:      make([]func() error, 0, buffer),
 		workerDone: make(chan struct{}),
 		errCh:      make(chan error),
@@ -56,17 +51,17 @@ func NewWriter(buffer int) *Writer {
 
 // Submit 将 save 加入后台队列并立即返回。
 //
-// 如果 Writer 已经 Close，返回错误；任务执行过程中的错误不会在此返回，而是
+// 如果 asyncWriter 已经 Close，返回错误；任务执行过程中的错误不会在此返回，而是
 // 通过 Errors 通道收集。
-func (w *Writer) Submit(save func() error) error {
+func (w *asyncWriter) Submit(save func() error) error {
 	if save == nil {
-		return errors.New("persist: nil save function")
+		return errors.New("session: nil save function")
 	}
 
 	w.mu.Lock()
 	if w.closed {
 		w.mu.Unlock()
-		return errors.New("persist: writer is closed")
+		return errors.New("session: async writer is closed")
 	}
 	w.queue = append(w.queue, save)
 	w.pending++
@@ -78,7 +73,7 @@ func (w *Writer) Submit(save func() error) error {
 // Flush 阻塞直到当前已提交的任务全部执行完成。
 //
 // ctx 被取消时立即返回 ctx.Err()。
-func (w *Writer) Flush(ctx context.Context) error {
+func (w *asyncWriter) Flush(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -106,7 +101,7 @@ func (w *Writer) Flush(ctx context.Context) error {
 //
 // Close 不会关闭 Errors 通道本身；错误转发 goroutine 会在所有已收集错误被
 // 读取后关闭该通道。
-func (w *Writer) Close() error {
+func (w *asyncWriter) Close() error {
 	w.mu.Lock()
 	if w.closed {
 		w.mu.Unlock()
@@ -128,13 +123,13 @@ func (w *Writer) Close() error {
 
 // Errors 返回后台任务执行错误的只读通道。
 //
-// 通道会在 Writer 关闭且已收集错误全部转发后关闭。调用方应持续读取或稍后
+// 通道会在 asyncWriter 关闭且已收集错误全部转发后关闭。调用方应持续读取或稍后
 // range 该通道，避免错误转发 goroutine 因无人接收而阻塞。
-func (w *Writer) Errors() <-chan error {
+func (w *asyncWriter) Errors() <-chan error {
 	return w.errCh
 }
 
-func (w *Writer) loop() {
+func (w *asyncWriter) loop() {
 	defer close(w.workerDone)
 
 	for {
@@ -163,14 +158,14 @@ func (w *Writer) loop() {
 	}
 }
 
-func (w *Writer) addError(err error) {
+func (w *asyncWriter) addError(err error) {
 	w.errMu.Lock()
 	w.errs = append(w.errs, err)
 	w.errMu.Unlock()
 	w.errCond.Signal()
 }
 
-func (w *Writer) forwardErrors() {
+func (w *asyncWriter) forwardErrors() {
 	for {
 		w.errMu.Lock()
 		for len(w.errs) == 0 && !w.errClosed {
@@ -198,7 +193,7 @@ func (w *Writer) forwardErrors() {
 func runSave(save func() error) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("persist: task panic: %v", r)
+			err = fmt.Errorf("session: task panic: %v", r)
 		}
 	}()
 	return save()

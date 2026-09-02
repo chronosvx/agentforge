@@ -1,4 +1,4 @@
-package mcpperm
+package mcp
 
 import (
 	"testing"
