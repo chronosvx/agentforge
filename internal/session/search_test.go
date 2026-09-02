@@ -1,16 +1,15 @@
-package search_test
+package session_test
 
 import (
 	"strings"
 	"testing"
 
 	"github.com/chronosvx/agentforge/internal/client"
-	"github.com/chronosvx/agentforge/internal/search"
 	"github.com/chronosvx/agentforge/internal/session"
 )
 
 func TestAddAllAndSearchHit(t *testing.T) {
-	idx := &search.Index{}
+	idx := &session.Index{}
 	idx.AddAll([]session.Entry{
 		{
 			ID: "s1",
@@ -49,7 +48,7 @@ func TestAddAllAndSearchHit(t *testing.T) {
 }
 
 func TestSearchEmptyQuery(t *testing.T) {
-	idx := &search.Index{}
+	idx := &session.Index{}
 	idx.AddAll([]session.Entry{
 		{ID: "s1", Messages: []client.Message{{Role: "user", Content: "anything"}}},
 	})
@@ -63,7 +62,7 @@ func TestSearchEmptyQuery(t *testing.T) {
 }
 
 func TestSearchLimit(t *testing.T) {
-	idx := &search.Index{}
+	idx := &session.Index{}
 	idx.AddAll([]session.Entry{
 		{
 			ID: "s1",
@@ -103,7 +102,7 @@ func TestSearchLimit(t *testing.T) {
 }
 
 func TestSnippetTruncation(t *testing.T) {
-	idx := &search.Index{}
+	idx := &session.Index{}
 	content := strings.Repeat("a", 100) + " needle " + strings.Repeat("b", 100)
 	idx.Add(session.Entry{
 		ID:       "s1",
@@ -127,7 +126,7 @@ func TestSnippetTruncation(t *testing.T) {
 }
 
 func TestAddReplacesSessionMessages(t *testing.T) {
-	idx := &search.Index{}
+	idx := &session.Index{}
 	idx.Add(session.Entry{
 		ID:       "s1",
 		Messages: []client.Message{{Role: "user", Content: "old content"}},
@@ -147,7 +146,7 @@ func TestAddReplacesSessionMessages(t *testing.T) {
 
 // TestAddAsyncIncrementalUpdate 验证 AddAsync 与 Add 等价，且不会重建整个索引。
 func TestAddAsyncIncrementalUpdate(t *testing.T) {
-	idx := &search.Index{}
+	idx := &session.Index{}
 	idx.AddAsync(session.Entry{
 		ID:       "s1",
 		Messages: []client.Message{{Role: "user", Content: "first"}},
@@ -180,7 +179,7 @@ func FuzzSearchNeverPanics(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, content string, query string) {
-		idx := &search.Index{}
+		idx := &session.Index{}
 		idx.Add(session.Entry{
 			ID:       "s1",
 			Messages: []client.Message{{Role: "user", Content: content}},
@@ -188,4 +187,35 @@ func FuzzSearchNeverPanics(f *testing.F) {
 		_ = idx.Search(query, 0)
 		_ = idx.Search(query, 1)
 	})
+}
+
+func BenchmarkSearchIndex1000Messages(b *testing.B) {
+	entry := benchEntry()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		idx := &session.Index{}
+		idx.Add(entry)
+	}
+}
+
+func BenchmarkSearchSearch1000Messages(b *testing.B) {
+	entry := benchEntry()
+	idx := &session.Index{}
+	idx.Add(entry)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = idx.Search("needle-999", 50)
+	}
+}
+
+func BenchmarkSearchSearch1000MessagesMiss(b *testing.B) {
+	entry := benchEntry()
+	idx := &session.Index{}
+	idx.Add(entry)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = idx.Search("this-query-does-not-exist", 50)
+	}
 }

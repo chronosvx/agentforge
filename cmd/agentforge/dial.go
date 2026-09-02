@@ -10,7 +10,7 @@ import (
 	"github.com/chronosvx/agentforge/internal/mock"
 	"github.com/chronosvx/agentforge/internal/offline"
 	"github.com/chronosvx/agentforge/internal/provider"
-	"github.com/chronosvx/agentforge/internal/secret"
+	"github.com/chronosvx/agentforge/internal/security"
 	"github.com/chronosvx/agentforge/internal/session"
 	"github.com/chronosvx/agentforge/internal/ui"
 	"io"
@@ -80,20 +80,20 @@ func resolveProviderKey(cfg *config.Config) error {
 		cfg.ProviderKey = key
 	}
 
-	useSecret := cfg.Keychain || cfg.SecretKey != "" || os.Getenv(secret.EnvSecretKey) != ""
+	useSecret := cfg.Keychain || cfg.SecretKey != "" || os.Getenv(security.EnvSecretKey) != ""
 	if !useSecret {
 		return nil
 	}
 
-	var store secret.Store
+	var store security.Store
 	var err error
 	switch {
 	case cfg.Keychain:
-		store, err = secret.NewStore(cfg.DataDir, true)
+		store, err = security.NewStore(cfg.DataDir, true)
 	case cfg.SecretKey != "":
-		store, err = secret.NewEncryptedFileStore(cfg.DataDir, cfg.SecretKey)
+		store, err = security.NewEncryptedFileStore(cfg.DataDir, cfg.SecretKey)
 	default:
-		store, err = secret.NewStore(cfg.DataDir, false)
+		store, err = security.NewStore(cfg.DataDir, false)
 	}
 	if err != nil {
 		return fmt.Errorf("init secret store: %w", err)
@@ -109,7 +109,7 @@ func resolveProviderKey(cfg *config.Config) error {
 
 	got, err := store.Get(service, cfg.Provider)
 	if err != nil {
-		if errors.Is(err, secret.ErrNotFound) {
+		if errors.Is(err, security.ErrNotFound) {
 			return errors.New("provider key not found in secret store; run again with --provider-key to store it")
 		}
 		return fmt.Errorf("read provider key from secret store: %w", err)

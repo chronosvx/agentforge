@@ -18,7 +18,6 @@ import (
 
 	"github.com/charmbracelet/bubbletea"
 	"github.com/chronosvx/agentforge/internal/config"
-	"github.com/chronosvx/agentforge/internal/secret"
 	"github.com/chronosvx/agentforge/internal/security"
 	"github.com/chronosvx/agentforge/internal/session"
 	"github.com/chronosvx/agentforge/internal/telemetry"
@@ -183,7 +182,7 @@ func newSessionStore(cfg *config.Config) (session.LocalStore, error) {
 
 	keySource := cfg.SecretKey
 	if keySource == "" {
-		keySource = os.Getenv(secret.EnvSecretKey)
+		keySource = os.Getenv(security.EnvSecretKey)
 	}
 	if keySource == "" {
 		return nil, errors.New("--encrypt-sessions requires --secret-key or DSH_SECRET_KEY")

@@ -68,9 +68,8 @@ internal/mcp/           MCP Client: JSON-RPC 2.0, HTTP/SSE and stdio transports
 internal/persist/       Async persistence queue (Writer)
 internal/skill/         Skill local install, repo clone, remote manifest sync
 internal/provider/      Direct model providers: OpenAI-compatible client, proxy, routing/failover, pricing, context windows
-internal/secret/        API key secure storage: system keychain / local AES-GCM encrypted file
 internal/offline/       Local JSON offline message queue
-internal/security/      AES-GCM encryption, redaction, audit logging
+internal/security/      AES-GCM encryption, redaction, audit logging, secure API key storage (system keychain / encrypted file)
 internal/plugin/        Plugin marketplace/signature/permissions/sandbox
 internal/cost/          Cost estimation and budget management
 internal/executor/      Local / Docker / SSH command execution

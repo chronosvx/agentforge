@@ -72,9 +72,8 @@ internal/mcp/           MCP Client：JSON-RPC 2.0、HTTP/SSE 与 stdio 传输、
 internal/persist/       通用异步持久化队列（Writer）
 internal/skill/         Skill 本地安装/仓库克隆/远端 manifest 同步
 internal/provider/      直连模型厂商：OpenAI 兼容客户端、代理、路由/故障转移、定价与上下文窗口
-internal/secret/        API Key 安全存储：系统 Keychain / 本地 AES-GCM 加密文件
 internal/offline/       本地 JSON 离线消息队列
-internal/security/      AES-GCM 加密、脱敏、审计日志
+internal/security/      AES-GCM 加密、脱敏、审计日志、API Key 安全存储（系统 Keychain / 本地加密文件）
 internal/plugin/        插件市场/签名/权限/沙箱
 internal/cost/          成本估算与预算管理
 internal/executor/      本地 / Docker / SSH 命令执行

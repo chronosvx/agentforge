@@ -1,12 +1,12 @@
-// Package secret 提供 API Key / 敏感凭据的安全存储。
+// Package security 提供 API Key / 敏感凭据的安全存储。
 //
 // 支持两种后端：
-//   - EncryptedFileStore：使用 internal/security 的 AES-GCM 加密后写入
+//   - EncryptedFileStore：使用 AES-GCM 加密后写入
 //     <data-dir>/secrets.json，主密钥来自 DSH_SECRET_KEY 或 --secret-key。
 //   - KeychainStore：调用操作系统 Keychain / 凭据管理器：
 //     macOS 使用 security，Windows 使用 PowerShell + Credential Manager，
 //     Linux 使用 secret-tool（libsecret）。
-package secret
+package security
 
 import (
 	"encoding/base64"
@@ -19,8 +19,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-
-	"github.com/chronosvx/agentforge/internal/security"
 )
 
 const (
@@ -81,7 +79,7 @@ func NewEncryptedFileStore(dataDir, masterKey string) (*EncryptedFileStore, erro
 	if masterKey == "" {
 		return nil, ErrNoSecretKey
 	}
-	keyBytes, err := security.LoadKey(masterKey)
+	keyBytes, err := LoadKey(masterKey)
 	if err != nil {
 		return nil, fmt.Errorf("secret: load master key: %w", err)
 	}
@@ -111,7 +109,7 @@ func (s *EncryptedFileStore) Set(service, key, value string) error {
 		return err
 	}
 
-	sealed, err := security.Encrypt([]byte(value), s.key)
+	sealed, err := Encrypt([]byte(value), s.key)
 	if err != nil {
 		return fmt.Errorf("secret: encrypt %s/%s: %w", service, key, err)
 	}
@@ -153,7 +151,7 @@ func (s *EncryptedFileStore) Get(service, key string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("secret: decode %s/%s: %w", service, key, err)
 	}
-	plain, err := security.Decrypt(sealed, s.key)
+	plain, err := Decrypt(sealed, s.key)
 	if err != nil {
 		return "", fmt.Errorf("secret: decrypt %s/%s: %w", service, key, err)
 	}

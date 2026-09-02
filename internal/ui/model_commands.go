@@ -9,7 +9,6 @@ import (
 	"github.com/chronosvx/agentforge/internal/i18n"
 	"github.com/chronosvx/agentforge/internal/mcp"
 	"github.com/chronosvx/agentforge/internal/multiagent"
-	"github.com/chronosvx/agentforge/internal/search"
 	"github.com/chronosvx/agentforge/internal/session"
 	"github.com/chronosvx/agentforge/internal/skill"
 	"os"
@@ -496,7 +495,7 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 			m.status = "find error: " + err.Error()
 			break
 		}
-		idx := &search.Index{}
+		idx := &session.Index{}
 		idx.AddAll(list)
 		m.searchResults = idx.Search(query, 50)
 		m.searchCursor = 0

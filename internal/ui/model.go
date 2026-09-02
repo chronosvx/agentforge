@@ -24,7 +24,6 @@ import (
 	"github.com/chronosvx/agentforge/internal/memory"
 	"github.com/chronosvx/agentforge/internal/multiagent"
 	"github.com/chronosvx/agentforge/internal/plugin"
-	"github.com/chronosvx/agentforge/internal/search"
 	"github.com/chronosvx/agentforge/internal/security"
 	"github.com/chronosvx/agentforge/internal/session"
 	"github.com/chronosvx/agentforge/internal/skill"
@@ -197,7 +196,7 @@ type Model struct {
 
 	panelFocused bool
 
-	searchResults []search.Result
+	searchResults []session.Result
 	searchCursor  int
 
 	pluginManager *plugin.Manager

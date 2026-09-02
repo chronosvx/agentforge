@@ -433,7 +433,7 @@ agentforge import --data-dir ~/.agentforge --in-dir /path/to/export
 
 ## 本地安全能力
 
-`internal/security` 提供本地敏感数据保护基础能力，供会话加密、状态栏/日志脱敏与审计日志使用。`internal/secret` 在此基础上提供 API Key 安全存储（系统 Keychain / 本地 AES-GCM 加密文件），使用方式见上文“厂商 API Key 安全存储”。
+`internal/security` 提供本地敏感数据保护基础能力，包括 AES-GCM 加解密、状态栏/日志脱敏、审计日志，以及 API Key 安全存储（系统 Keychain / 本地 AES-GCM 加密文件）。API Key 安全存储的使用方式见上文“厂商 API Key 安全存储”。
 
 ### 本地会话加密存储
 

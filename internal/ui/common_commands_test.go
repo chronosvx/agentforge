@@ -7,7 +7,7 @@ import (
 	"github.com/chronosvx/agentforge/internal/client"
 	"github.com/chronosvx/agentforge/internal/config"
 	"github.com/chronosvx/agentforge/internal/i18n"
-	"github.com/chronosvx/agentforge/internal/search"
+	"github.com/chronosvx/agentforge/internal/session"
 )
 
 func TestClearCommandClearsMessagesAndSetsDirty(t *testing.T) {
@@ -18,7 +18,7 @@ func TestClearCommandClearsMessagesAndSetsDirty(t *testing.T) {
 		diffs:         []any{map[string]any{"file": "a.txt"}},
 		todos:         []any{map[string]any{"id": "1"}},
 		tools:         []any{map[string]any{"name": "bash"}},
-		searchResults: []search.Result{{SessionID: "s1", Content: "hi"}},
+		searchResults: []session.Result{{SessionID: "s1", Content: "hi"}},
 	}
 
 	m.handleCommand("/clear")

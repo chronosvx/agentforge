@@ -1,14 +1,14 @@
-// Package search 提供本地会话历史消息的简单全文索引。
+package session
+
+// 此文件提供本地会话历史消息的简单全文索引。
 //
 // 当前实现为内存索引：Add/AddAll 将会话消息载入内存，Search 对消息内容
 // 做大小写不敏感的子串匹配，并返回命中消息及其前后文摘要。
-package search
 
 import (
 	"strings"
 
 	"github.com/chronosvx/agentforge/internal/client"
-	"github.com/chronosvx/agentforge/internal/session"
 )
 
 // Result 表示一次消息搜索命中的位置与摘要。
@@ -33,7 +33,7 @@ type Index struct {
 //
 // Add 只更新对应会话并失效该会话的小写缓存，不会重建整个索引，因此适合在
 // 大会话场景下增量更新。
-func (idx *Index) Add(entry session.Entry) {
+func (idx *Index) Add(entry Entry) {
 	if idx.messages == nil {
 		idx.messages = make(map[string][]client.Message)
 	}
@@ -48,7 +48,7 @@ func (idx *Index) Add(entry session.Entry) {
 }
 
 // AddAll 批量加入多个会话。按传入顺序保留会话的索引顺序。
-func (idx *Index) AddAll(entries []session.Entry) {
+func (idx *Index) AddAll(entries []Entry) {
 	for _, entry := range entries {
 		idx.Add(entry)
 	}
@@ -58,7 +58,7 @@ func (idx *Index) AddAll(entries []session.Entry) {
 //
 // 当前搜索索引为纯内存结构，Add/AddAsync 都只更新单个会话并失效对应的小写
 // 缓存，不会全量重建；调用方可在大会话场景下放心增量更新。
-func (idx *Index) AddAsync(entry session.Entry) {
+func (idx *Index) AddAsync(entry Entry) {
 	idx.Add(entry)
 }
 

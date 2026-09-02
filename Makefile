@@ -37,7 +37,7 @@ package:
 	./scripts/package-release.sh
 
 fuzz:
-	for pkg in ./internal/provider ./internal/search ./internal/session; do \
+	for pkg in ./internal/provider ./internal/session; do \
 		go test -fuzz=Fuzz -fuzztime=5s "$$pkg" || exit 1; \
 	done
 
