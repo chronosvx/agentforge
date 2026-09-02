@@ -11,9 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -23,128 +21,8 @@ import (
 	"github.com/chronosvx/agentforge/internal/session"
 )
 
-func TestParseSyncRemoteArgsWatch(t *testing.T) {
-	opts, err := parseSyncRemoteArgs([]string{
-		"--url", "https://example.test/sessions",
-		"--watch",
-		"--interval", "5s",
-		"--push",
-	})
-	if err != nil {
-		t.Fatalf("parse watch args: %v", err)
-	}
-	if !opts.watch {
-		t.Fatalf("expected watch=true")
-	}
-	if opts.interval != 5*time.Second {
-		t.Fatalf("interval = %v, want 5s", opts.interval)
-	}
-	if !opts.push || opts.pull {
-		t.Fatalf("unexpected directions: push=%v pull=%v", opts.push, opts.pull)
-	}
-}
-
-func TestParseSyncRemoteArgsWatchDefaultsToPullThenPush(t *testing.T) {
-	opts, err := parseSyncRemoteArgs([]string{
-		"--url", "https://example.test/sessions",
-		"--watch",
-	})
-	if err != nil {
-		t.Fatalf("parse watch without direction: %v", err)
-	}
-	if !opts.watch {
-		t.Fatalf("expected watch=true")
-	}
-	if !opts.pull || !opts.push {
-		t.Fatalf("watch without direction should default to pull+push, got push=%v pull=%v", opts.push, opts.pull)
-	}
-	if opts.interval != 60*time.Second {
-		t.Fatalf("default interval = %v, want 60s", opts.interval)
-	}
-}
-
-func TestParseSyncRemoteArgsNonWatchStillRequiresExactlyOneDirection(t *testing.T) {
-	if _, err := parseSyncRemoteArgs([]string{"--url", "https://example.test/sessions"}); err == nil {
-		t.Fatalf("expected error when non-watch has no direction")
-	}
-	if _, err := parseSyncRemoteArgs([]string{"--url", "https://example.test/sessions", "--push", "--pull"}); err == nil {
-		t.Fatalf("expected error when non-watch has both directions")
-	}
-}
-
-func TestSyncOncePushWithHTTPStore(t *testing.T) {
-	blobs := newSyncTestBlobs()
-	srv := httptest.NewServer(http.HandlerFunc(blobs.handle))
-	defer srv.Close()
-
-	dataDir := t.TempDir()
-	store, err := session.NewStore(dataDir)
-	if err != nil {
-		t.Fatalf("new store: %v", err)
-	}
-	if err := store.Save(session.Entry{
-		ID:        "s1",
-		Title:     "hello",
-		UpdatedAt: time.Unix(100, 0),
-	}); err != nil {
-		t.Fatalf("save session: %v", err)
-	}
-
-	remote := session.NewHTTPStore(srv.URL + "/sessions")
-	if err := syncOnce(context.Background(), dataDir, remote, true, false); err != nil {
-		t.Fatalf("syncOnce push: %v", err)
-	}
-
-	raw, ok := blobs.get("s1")
-	if !ok {
-		t.Fatalf("remote did not receive s1")
-	}
-	var got session.Entry
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("decode remote blob: %v", err)
-	}
-	if got.ID != "s1" || got.Title != "hello" {
-		t.Fatalf("unexpected remote entry: %+v", got)
-	}
-}
-
-func TestSyncOncePullWithHTTPStore(t *testing.T) {
-	blobs := newSyncTestBlobs()
-	remoteEntry := session.Entry{
-		ID:        "r1",
-		Title:     "from remote",
-		UpdatedAt: time.Unix(200, 0),
-	}
-	data, err := json.Marshal(remoteEntry)
-	if err != nil {
-		t.Fatalf("marshal remote entry: %v", err)
-	}
-	blobs.set("r1", data)
-
-	srv := httptest.NewServer(http.HandlerFunc(blobs.handle))
-	defer srv.Close()
-
-	dataDir := t.TempDir()
-	remote := session.NewHTTPStore(srv.URL + "/sessions")
-	if err := syncOnce(context.Background(), dataDir, remote, false, true); err != nil {
-		t.Fatalf("syncOnce pull: %v", err)
-	}
-
-	store, err := session.NewStore(dataDir)
-	if err != nil {
-		t.Fatalf("new store after pull: %v", err)
-	}
-	got, err := store.Load("r1")
-	if err != nil {
-		t.Fatalf("load pulled session: %v", err)
-	}
-	if got.Title != "from remote" {
-		t.Fatalf("pulled title = %q, want %q", got.Title, "from remote")
-	}
-}
-
 func TestExtractHeadlessOptions(t *testing.T) {
-	headless, prompt, rest, err := extractHeadlessOptions([]string{
+	headless, prompt, format, rest, err := extractHeadlessOptions([]string{
 		"--headless", "--provider", "deepseek", "--prompt", "hello", "--mock",
 	})
 	if err != nil {
@@ -156,6 +34,9 @@ func TestExtractHeadlessOptions(t *testing.T) {
 	if prompt != "hello" {
 		t.Fatalf("prompt = %q, want %q", prompt, "hello")
 	}
+	if format != "text" {
+		t.Fatalf("format = %q, want default text", format)
+	}
 	want := []string{"--provider", "deepseek", "--mock"}
 	if strings.Join(rest, " ") != strings.Join(want, " ") {
 		t.Fatalf("rest = %v, want %v", rest, want)
@@ -163,8 +44,8 @@ func TestExtractHeadlessOptions(t *testing.T) {
 }
 
 func TestExtractHeadlessOptionsEqualsForm(t *testing.T) {
-	headless, prompt, rest, err := extractHeadlessOptions([]string{
-		"--headless=true", "--prompt=hello", "--provider", "deepseek",
+	headless, prompt, format, rest, err := extractHeadlessOptions([]string{
+		"--headless=true", "--prompt=hello", "--format=json", "--provider", "deepseek",
 	})
 	if err != nil {
 		t.Fatalf("extract headless options: %v", err)
@@ -172,13 +53,16 @@ func TestExtractHeadlessOptionsEqualsForm(t *testing.T) {
 	if !headless || prompt != "hello" {
 		t.Fatalf("unexpected headless=%v prompt=%q", headless, prompt)
 	}
+	if format != "json" {
+		t.Fatalf("format = %q, want json", format)
+	}
 	if len(rest) != 2 || rest[0] != "--provider" || rest[1] != "deepseek" {
 		t.Fatalf("unexpected rest: %v", rest)
 	}
 }
 
 func TestExtractHeadlessOptionsMissingPromptValue(t *testing.T) {
-	if _, _, _, err := extractHeadlessOptions([]string{"--headless", "--prompt"}); err == nil {
+	if _, _, _, _, err := extractHeadlessOptions([]string{"--headless", "--prompt"}); err == nil {
 		t.Fatal("expected error for missing --prompt value")
 	}
 }
@@ -334,69 +218,6 @@ func TestHelperProcess(t *testing.T) {
 	}
 	os.Exit(0)
 }
-
-// syncTestBlobs 是测试用的内存会话存储，模拟 HTTPStore 后端。
-type syncTestBlobs struct {
-	mu   sync.Mutex
-	data map[string][]byte
-}
-
-func newSyncTestBlobs() *syncTestBlobs {
-	return &syncTestBlobs{data: make(map[string][]byte)}
-}
-
-func (b *syncTestBlobs) get(id string) ([]byte, bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	raw, ok := b.data[id]
-	return append([]byte(nil), raw...), ok
-}
-
-func (b *syncTestBlobs) set(id string, data []byte) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.data[id] = append([]byte(nil), data...)
-}
-
-func (b *syncTestBlobs) handle(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/sessions" && r.URL.Query().Get("list") == "1" {
-		b.mu.Lock()
-		ids := make([]string, 0, len(b.data))
-		for id := range b.data {
-			ids = append(ids, id)
-		}
-		b.mu.Unlock()
-		sort.Strings(ids)
-		_ = json.NewEncoder(w).Encode(ids)
-		return
-	}
-
-	if !strings.HasPrefix(r.URL.Path, "/sessions/") {
-		http.NotFound(w, r)
-		return
-	}
-	id := strings.TrimPrefix(r.URL.Path, "/sessions/")
-	switch r.Method {
-	case http.MethodPut:
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		b.set(id, body)
-		w.WriteHeader(http.StatusNoContent)
-	case http.MethodGet:
-		raw, ok := b.get(id)
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = w.Write(raw)
-	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-
 func TestBuildRepoContext(t *testing.T) {
 	got := buildRepoContext(&repomode.Info{
 		Root:          "/tmp/repo",

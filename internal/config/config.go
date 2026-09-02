@@ -16,6 +16,16 @@ const (
 	DefaultDataDir = "~/.agentforge"
 )
 
+// supportedThemes 是 Theme 字段支持的取值。
+var supportedThemes = map[string]bool{
+	"default":     true,
+	"catppuccin":  true,
+	"dracula":     true,
+	"tokyo-night": true,
+	"nord":        true,
+	"solarized":   true,
+}
+
 // Config 保存 agentforge 运行所需的配置。
 type Config struct {
 	Endpoint          string  // DSH Channel WebSocket 地址
@@ -27,7 +37,7 @@ type Config struct {
 	DataDir           string  // 本地数据目录
 	Mock              bool    // 为 true 时连接内置 mock server
 	CostLimit         float64 // 成本告警阈值（元），0 表示关闭
-	Theme             string  // 主题：default / catppuccin
+	Theme             string  // 主题：default / catppuccin / dracula / tokyo-night / nord / solarized
 	Lang              string  // 界面语言：zh / en
 	Telemetry         bool    // 为 true 时启用本地遥测（默认关闭）
 	Version           bool    // 仅打印版本并退出
@@ -41,6 +51,7 @@ type Config struct {
 	SecretKey         string  // EncryptedFileStore 主密钥（hex/base64），也可用 DSH_SECRET_KEY
 	ConfirmDataExport bool    // 为 true 时确认允许数据出境
 	NoAudit           bool    // 为 true 时禁用审计日志
+	NoColor           bool    // 为 true 时禁用彩色输出
 	User              string  // 模拟企业用户身份（可选）
 	Roles             string  // 模拟用户角色，逗号分隔（可选）
 }
@@ -66,7 +77,7 @@ func Parse(args []string) (*Config, error) {
 	fs.StringVar(&cfg.DataDir, "data-dir", cfg.DataDir, "本地数据目录（支持 ~ 展开）")
 	fs.BoolVar(&cfg.Mock, "mock", false, "连接内置 mock server 而不是真实 DSH")
 	fs.Float64Var(&cfg.CostLimit, "cost-limit", 0, "成本告警阈值（元），0 表示关闭")
-	fs.StringVar(&cfg.Theme, "theme", "default", "主题：default / catppuccin")
+	fs.StringVar(&cfg.Theme, "theme", "default", "主题：default / catppuccin / dracula / tokyo-night / nord / solarized")
 	fs.StringVar(&cfg.Lang, "lang", cfg.Lang, "界面语言：zh / en")
 	fs.BoolVar(&cfg.Telemetry, "telemetry", false, "启用本地遥测（写入 <data-dir>/telemetry.log，默认关闭）")
 	fs.BoolVar(&cfg.Version, "version", false, "打印版本并退出")
@@ -80,6 +91,7 @@ func Parse(args []string) (*Config, error) {
 	fs.StringVar(&cfg.SecretKey, "secret-key", "", "EncryptedFileStore 主密钥（hex/base64；为空时读取 DSH_SECRET_KEY）")
 	fs.BoolVar(&cfg.ConfirmDataExport, "confirm-data-export", false, "确认允许数据出境（连接国外厂商时提示）")
 	fs.BoolVar(&cfg.NoAudit, "no-audit", false, "禁用审计日志（默认开启）")
+	fs.BoolVar(&cfg.NoColor, "no-color", false, "禁用彩色输出（默认 false）")
 	fs.StringVar(&cfg.User, "user", "", "模拟企业用户身份（可选）")
 	fs.StringVar(&cfg.Roles, "roles", "", "模拟用户角色，逗号分隔（可选）")
 
@@ -119,6 +131,10 @@ func Parse(args []string) (*Config, error) {
 
 	if cfg.Lang != "zh" && cfg.Lang != "en" {
 		return nil, fmt.Errorf("config: invalid --lang %q (supported: zh, en)", cfg.Lang)
+	}
+
+	if !supportedThemes[cfg.Theme] {
+		return nil, fmt.Errorf("config: invalid --theme %q (supported: default, catppuccin, dracula, tokyo-night, nord, solarized)", cfg.Theme)
 	}
 
 	dataDir, err := expandHome(cfg.DataDir)

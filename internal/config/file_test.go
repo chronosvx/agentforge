@@ -73,3 +73,17 @@ func TestParseMissingConfigIgnored(t *testing.T) {
 		t.Fatalf("unexpected api url: %q", cfg.APIURL)
 	}
 }
+
+func TestParseConfigFileNoColor(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"no-color":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Parse([]string{"--config", path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.NoColor {
+		t.Fatal("expected NoColor true from config file")
+	}
+}

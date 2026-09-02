@@ -82,6 +82,38 @@ func (m *Model) workspaceDir() string {
 	return "."
 }
 
+// handleMultiKey 处理 Multi-Agent 面板聚焦时的上下移动。
+// 当前显示的是运行中的任务列表或待执行的任务列表；没有可显示任务时返回 false。
+func (m *Model) handleMultiKey(key string) bool {
+	tasks := m.multiTasks
+	if !m.multiRunning && len(m.multiPending) > 0 {
+		tasks = m.multiPending
+	}
+	if len(tasks) == 0 {
+		return false
+	}
+	if m.multiCursor < 0 {
+		m.multiCursor = 0
+	}
+	if m.multiCursor >= len(tasks) {
+		m.multiCursor = len(tasks) - 1
+	}
+
+	switch key {
+	case "j", "down":
+		if m.multiCursor < len(tasks)-1 {
+			m.multiCursor++
+		}
+		return true
+	case "k", "up":
+		if m.multiCursor > 0 {
+			m.multiCursor--
+		}
+		return true
+	}
+	return false
+}
+
 // pluginCommand 识别命令面板/输入框中的插件命令并返回执行 tea.Cmd。
 func (m *Model) renderMultiAgentPanel() string {
 	var b strings.Builder

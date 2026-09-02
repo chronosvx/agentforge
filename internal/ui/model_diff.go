@@ -82,6 +82,24 @@ func (m *Model) handleDiffKey(key string) bool {
 		m.diffDecisions[m.diffCursor] = "rejected"
 		m.status = fmt.Sprintf("diff %d rejected", m.diffCursor+1)
 		return true
+	case "A":
+		if m.diffDecisions == nil {
+			m.diffDecisions = map[int]string{}
+		}
+		for i := range m.diffs {
+			m.diffDecisions[i] = "accepted"
+		}
+		m.status = fmt.Sprintf("accepted all %d diffs", len(m.diffs))
+		return true
+	case "R":
+		if m.diffDecisions == nil {
+			m.diffDecisions = map[int]string{}
+		}
+		for i := range m.diffs {
+			m.diffDecisions[i] = "rejected"
+		}
+		m.status = fmt.Sprintf("rejected all %d diffs", len(m.diffs))
+		return true
 	case "p":
 		path, err := m.savePatch()
 		if err != nil {
@@ -369,6 +387,17 @@ func (m *Model) renderDiffPanel() string {
 	}
 	var b strings.Builder
 	b.WriteString(i18n.T("panel.diff_title") + "\n")
+	accepted := 0
+	rejected := 0
+	for i := range m.diffs {
+		switch m.diffDecisions[i] {
+		case "accepted":
+			accepted++
+		case "rejected":
+			rejected++
+		}
+	}
+	b.WriteString(fmt.Sprintf("accepted: %d, rejected: %d, pending: %d\n", accepted, rejected, len(m.diffs)-accepted-rejected))
 	for i, raw := range m.diffs {
 		item, ok := raw.(map[string]any)
 		if !ok {

@@ -1638,8 +1638,8 @@ func TestMCPConfirmDoesNotCallToolImmediately(t *testing.T) {
 	if m.pendingMCPArgs == nil || m.pendingMCPArgs["path"] != "/tmp" {
 		t.Fatalf("pendingMCPArgs = %#v, want stored args", m.pendingMCPArgs)
 	}
-	if !strings.Contains(m.status, "/mcp-approve") {
-		t.Fatalf("status = %q, want /mcp-approve hint", m.status)
+	if !strings.Contains(m.status, i18n.T("mcp.approval_pending")) {
+		t.Fatalf("status = %q, want approval pending message", m.status)
 	}
 }
 

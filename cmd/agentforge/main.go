@@ -2,7 +2,7 @@
 //
 // 它负责：
 //   - 解析命令行配置；
-//   - 执行会话导入/导出/同步子命令；
+//   - 执行会话导入/导出子命令；
 //   - 创建会话存储；
 //   - 连接真实 DSH 或内置 mock server；
 //   - 启动 Bubble Tea UI。
@@ -39,10 +39,7 @@ func main() {
 const version = "0.4.0"
 
 func run() error {
-	user, roles, args, err := extractGlobalIdentity(os.Args[1:])
-	if err != nil {
-		return err
-	}
+	args := os.Args[1:]
 
 	if len(args) > 0 && (args[0] == "help" || args[0] == "-h" || args[0] == "--help") {
 		printRootUsage()
@@ -55,16 +52,8 @@ func run() error {
 			return runExport(args[1:])
 		case "import":
 			return runImport(args[1:])
-		case "sync":
-			return runSync(args[1:])
-		case "sync-remote":
-			return runSyncRemote(args[1:])
-		case "share":
-			return runShare(args[1:])
-		case "open":
-			return runOpen(args[1:])
 		case "exec":
-			return runExecWithIdentity(args[1:], user, roles)
+			return runExec(args[1:])
 		case "agent":
 			return runAgent(args[1:])
 		case "multiagent":
@@ -79,16 +68,20 @@ func run() error {
 			return runAudit(args[1:])
 		case "mcp":
 			return runMCP(args[1:])
-		case "serve":
-			return runServe(args[1:])
 		case "init":
 			return runInit(args[1:])
+		case "project-init":
+			return runProjectInit(args[1:])
+		case "setup":
+			return runSetup(args[1:])
 		case "config":
 			return runConfig(args[1:])
+		case "market":
+			return runMarket(args[1:])
 		}
 	}
 
-	headless, prompt, rest, err := extractHeadlessOptions(args)
+	headless, prompt, format, rest, err := extractHeadlessOptions(args)
 	if err != nil {
 		return err
 	}
@@ -96,12 +89,6 @@ func run() error {
 	cfg, err := config.Parse(rest)
 	if err != nil {
 		return err
-	}
-	if cfg.User == "" {
-		cfg.User = user
-	}
-	if cfg.Roles == "" {
-		cfg.Roles = roles
 	}
 	if cfg.Version {
 		fmt.Println("agentforge", version)
@@ -120,6 +107,15 @@ func run() error {
 
 	warnPlaintextSecrets(cfg)
 
+	if cfg.NoColor {
+		// Bubble Tea UI 尚未完整实现强制无色渲染；先把开关暴露为环境变量，
+		// 并输出提示，方便在 doctor/config 之外让下游/子进程感知。
+		_ = os.Setenv("NO_COLOR", "1")
+		if !headless {
+			fmt.Fprintln(os.Stderr, "agentforge: --no-color enabled; UI color disabling is not enforced yet")
+		}
+	}
+
 	telemetry.SetEnabled(cfg.Telemetry)
 	if telemetry.Enabled() {
 		if err := telemetry.SetDataDir(cfg.DataDir); err != nil {
@@ -137,9 +133,6 @@ func run() error {
 		"user":    cfg.User,
 		"roles":   cfg.Roles,
 	})
-
-	siemLog := newSIEMSink(cfg.DataDir)
-	emitSIEM(siemLog, cfg.User, "app.start", "agentforge", "ok")
 
 	if err := resolveProviderKey(cfg); err != nil {
 		return err
@@ -160,7 +153,7 @@ func run() error {
 	setupOfflineQueue(cfg, cl, headless)
 
 	if headless {
-		return runHeadless(cl, cfg, prompt, siemLog)
+		return runHeadless(cl, cfg, prompt, format)
 	}
 
 	latest := maybeCheckUpdate()
@@ -227,18 +220,16 @@ Commands:
   exec         Execute commands locally, in Docker, or over SSH
   export       Export sessions to a directory
   import       Import sessions from a directory
-  sync         Sync sessions between two directories
-  sync-remote  Sync sessions with a remote HTTP/object storage backend
-  share        Share a session as an encrypted link
-  open         Open a shared session link
   doctor       Check the local environment for requirements
   backup       Backup the local data directory to a zip file
   restore      Restore the local data directory from a zip file
   audit        Show recent local audit log entries
   mcp          Connect to an MCP server and list/call tools
-  serve        Start the local daemon API for the desktop GUI
   init         Create a local configuration file
+  project-init Generate an AGENT.md project context file
+  setup        Run the first-run setup wizard
   config       Show effective configuration (secrets masked)
+  market       Search/install/list plugins from a plugin market
 
 Flags:
   --mock              Run with the built-in mock backend
@@ -247,6 +238,7 @@ Flags:
   --api-url URL       Connect to a real DSH Web API
   --data-dir DIR      Local data directory (default ~/.agentforge)
   --lang zh|en        UI language (default zh)
+  --no-color          Disable colored output (default false)
   --version           Print version and exit
   --help              Show this help
 
@@ -262,8 +254,9 @@ See docs/QUICKSTART.md for more.
 
 // extractGlobalIdentity 在子命令之前提取可选的 --user 与 --roles 全局参数。
 //
-// 一旦遇到第一个非 flag 参数（通常是子命令名），就停止提取，避免误删
-// `exec --user <ssh-user>` 中属于 SSH 的 --user。
+// 该函数已不再被主流程调用；保留仅为兼容旧测试/调用方。遇到第一个非 flag
+// 参数（通常是子命令名）即停止提取，避免误删 `exec --user <ssh-user>` 中
+// 属于 SSH 的 --user。
 func extractGlobalIdentity(args []string) (user, roles string, rest []string, err error) {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]

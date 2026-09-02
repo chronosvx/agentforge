@@ -60,9 +60,6 @@
 3. 解压后会得到一个文件夹，里面有一个 **`agentforge.exe`** 文件。
 4. 记住这个文件夹的位置，下一步会用到。
 
-> 截图占位：这里放 Windows 解压后看到 `agentforge.exe` 的截图。  
-> `![Windows 下载解压截图](screenshots/quickstart-windows-download.png)`
-
 ### macOS
 
 1. 下载 **`agentforge-darwin-amd64.dmg`** 或 **`agentforge-darwin-arm64.dmg`**。
@@ -70,9 +67,6 @@
 2. 双击打开 `.dmg` 文件。
 3. 把里面的 **`agentforge`** 拖到 **“应用程序”** 文件夹（也可以放到你记得住的文件夹）。
 4. 如果 macOS 提示“无法打开，因为来自身份不明的开发者”，请右键点击文件 → **打开**，再确认一次。
-
-> 截图占位：这里放 macOS 打开 DMG 后拖动程序的截图。  
-> `![macOS 安装截图](screenshots/quickstart-macos-install.png)`
 
 ### Linux
 
@@ -93,9 +87,6 @@
    > 如果你不想用 `sudo`，也可以把文件放到自己的目录：  
    > `mkdir -p ~/.local/bin && cp agentforge-linux-amd64/agentforge ~/.local/bin/`
 
-> 截图占位：这里放 Linux 终端执行安装命令的截图。  
-> `![Linux 安装截图](screenshots/quickstart-linux-install.png)`
-
 ---
 
 ## 第二步：启动程序
@@ -114,9 +105,6 @@
      .\agentforge.exe
      ```
 
-> 截图占位：这里放 Windows 中 PowerShell 启动后的聊天界面截图。  
-> `![Windows 启动截图](screenshots/quickstart-windows-run.png)`
-
 ### macOS
 
 1. 按键盘上的 `Command + 空格`，输入“终端”并回车，打开终端。
@@ -133,9 +121,6 @@
    ```
 
 3. 按回车，程序就会启动。
-
-> 截图占位：这里放 macOS 终端启动后的聊天界面截图。  
-> `![macOS 启动截图](screenshots/quickstart-macos-run.png)`
 
 ### Linux
 
@@ -154,9 +139,6 @@
    ```
 
 3. 按回车，程序就会启动。
-
-> 截图占位：这里放 Linux 终端启动后的聊天界面截图。  
-> `![Linux 启动截图](screenshots/quickstart-linux-run.png)`
 
 启动成功后，你应该能看到类似这样的文字界面：
 
@@ -211,9 +193,6 @@
 
    > 注意：`54695` 是例子，请以你电脑上实际显示的端口为准。
 
-> 截图占位：这里放连接 DSH 后成功聊天的截图。  
-> `![连接 DSH 截图](screenshots/quickstart-dsh.png)`
-
 ### 方式 B：直接使用 DeepSeek API Key（不需要 DSH）
 
 适合你只想用 DeepSeek 官方接口、不安装 DSH 的情况。
@@ -238,9 +217,6 @@
 
 > 小提示：程序默认会使用 DeepSeek 的常用模型 `deepseek-chat`，一般不需要额外设置。  
 > 如果你以后想指定模型，可以加 `--model deepseek-chat` 或 `--model deepseek-reasoner`。
-
-> 截图占位：这里放使用 DeepSeek Key 成功聊天的截图。  
-> `![DeepSeek 直连截图](screenshots/quickstart-deepseek.png)`
 
 ### 没有 Key / 没有 DSH 怎么办？
 

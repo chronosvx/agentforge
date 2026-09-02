@@ -39,70 +39,68 @@ agentforge config
 agentforge --mock
 ```
 
-## 🖥️ Desktop GUI (Preview)
-
-> The desktop GUI is a Flutter macOS desktop client (first target platform) for interacting with AgentForge visually.
-
-- Start the local daemon: `agentforge serve`
-- Run the GUI: `cd gui && flutter run -d macos`, or build with `make gui-macos`
-- Currently includes: Agent run panel, memory browsing, timeline/session browsing, and connection status
-- Future targets: Windows / Linux / mobile
-
 ## Documentation
 
 - Quickstart (no experience needed): [docs/QUICKSTART.en.md](docs/QUICKSTART.en.md)
 - Overview: [docs/overview.md](docs/overview.md)
 - Full usage guide: [docs/usage.md](docs/usage.md)
-- Architecture: [docs/architecture.md](docs/architecture.md)
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
 
 > Note: Most in-depth docs are currently in Chinese. English readers can use this README as the main entry and refer to the linked docs as needed.
 
 ## Design Goals
 
-- Connect to DSH through the `tui.dsh/v1alpha1` Channel protocol instead of reimplementing the Agent Harness.
-- Balance performance and maintainability: a single Go binary, low memory usage, and high rendering performance.
-- Implemented: real DSH Web API / Channel access, streaming chat, multi-session workspace, Context/Cost/Diff/Todo panels, provider direct connections, i18n, security, telemetry, and update checks.
-- Current focus: Agent main workflow, Repo Mode, natural-language execution, Patch-to-PR, Checkpoint timeline, MCP permission center, offline queue, and project memory.
-- Paused priority: enterprise suite, plugin marketplace governance, team collaboration, and MCP Server. Existing code is kept but not extended.
+- A terminal-first TUI/CLI product delivered as a single Go binary with low memory usage and high rendering performance.
+- Real connectivity is primarily through DSH Web API (HTTP + WebSocket); `tui.dsh/v1alpha1` Channel remains experimental/reserved and is not the official stable protocol.
+- Current focus: Agent main workflow, Repo Mode, natural-language execution, Patch-to-PR, Checkpoint timeline, MCP Client permission center, offline queue, and project memory.
 
 ## Project Structure
 
 ```text
-cmd/agentforge/      Entry point
-internal/dshapi/     Real DSH Web API client and backend adapter
-internal/client/     DSH Channel WebSocket client
-internal/session/    Session state, persistence, import/export/sync
-internal/share/      Session share links (AES-GCM encrypted / plaintext)
-internal/skill/      Skill local install, repo clone, remote manifest sync
-internal/provider/   Direct model providers: OpenAI-compatible client, proxy, routing/failover, pricing, context windows
-internal/secret/     API key secure storage: system keychain / local AES-GCM encrypted file
-internal/offline/    Local JSON offline message queue
-internal/security/   AES-GCM encryption, redaction, audit logging
-internal/plugin/     Plugin marketplace/signature/permissions/sandbox
-internal/cost/       Cost estimation and budget management
-internal/ui/         Bubble Tea UI
-internal/i18n/       Lightweight i18n language packs (zh / en)
-internal/config/     Config and CLI flags
-internal/telemetry/  Optional local telemetry (JSON Lines, redacted, no network)
-internal/update/     Automatic update checks (version compare + GitHub Release query)
+cmd/agentforge/         Entry point (TUI / CLI)
+cmd/agentforge-smoke    DSH Web API smoke/acceptance tool
+internal/dshapi/        Real DSH Web API client and backend adapter
+internal/client/        DSH Channel WebSocket client (experimental/reserved)
+internal/session/       Session state and local persistence (incl. AsyncStore)
+internal/agent/         Agent execution/approval state machine
+internal/contextx/      Context windowing, summarization, Checkpoint/Rewind
+internal/mcp/           MCP Client: JSON-RPC 2.0, HTTP/SSE and stdio transports
+internal/persist/       Async persistence queue (Writer)
+internal/skill/         Skill local install, repo clone, remote manifest sync
+internal/provider/      Direct model providers: OpenAI-compatible client, proxy, routing/failover, pricing, context windows
+internal/secret/        API key secure storage: system keychain / local AES-GCM encrypted file
+internal/offline/       Local JSON offline message queue
+internal/security/      AES-GCM encryption, redaction, audit logging
+internal/plugin/        Plugin marketplace/signature/permissions/sandbox
+internal/cost/          Cost estimation and budget management
+internal/executor/      Local / Docker / SSH command execution
+internal/orchestrator/  Multi-agent orchestration
+internal/memory/        Project memory / semantic search
+internal/ui/            Bubble Tea UI
+internal/i18n/          Lightweight i18n language packs (zh / en)
+internal/config/        Config and CLI flags
+internal/telemetry/     Optional local telemetry (JSON Lines, redacted, no network)
+internal/update/        Automatic update checks (version compare + GitHub Release query)
 ```
 
 ## Current Features
 
-The runnable v0.3.0 feature set can connect to the real DSH Web API:
+The current feature set is focused on the terminal TUI/CLI client:
 
-- **DSH client and real API**: `internal/dshapi` connects to DSH Web API (HTTP RPC + WebSocket event stream) with seq resume, auto-reconnect, and real session recovery; `internal/client` keeps the Channel WebSocket client.
-- **TUI workspace**: Bubble Tea chat interface, streaming rendering with virtual scrolling/incremental rendering, command palette, multiline input, multi-session tabs/split views, Context/Cost/Diff/Todo/Tools/Skills/Plugin panels, session search, full-text history search, and the `/exec` panel.
+- **DSH client and real API**: `internal/dshapi` connects to DSH Web API (HTTP RPC + WebSocket event stream) with seq resume, auto-reconnect, and real session recovery; `internal/client` keeps the experimental/reserved Channel WebSocket client.
+- **TUI workspace**: Bubble Tea chat interface, streaming rendering with virtual scrolling/incremental rendering, command palette, multiline input, `@` file references and autocomplete, multi-session tabs/split views, Context/Cost/Diff/Todo/Tools/Skills/Plugin panels, session search, full-text history search, input-history search (`Ctrl+R`), session overview (`/agentview`), rewind (`Esc` twice on an empty input), persistent HUD, `/clear`, `/status`, `/compact`, and the `/exec` panel.
+- **Custom keybindings**: global keybindings for help/palette/history can be customized via `<data-dir>/keybindings.json`.
 - **Provider direct connection**: `internal/provider` provides an OpenAI-compatible client, multiple API key rotation, routing/failover, error mapping, cost tables, and a model context window registry; supports HTTP/HTTPS/SOCKS5 proxies and a local offline queue.
-- **P0 foundation + UI integration**: `internal/agent` (agent execution/approval state machine), `internal/contextx` (context windowing, summarization, Checkpoint/Rewind), `internal/mcp` (MCP client), and `internal/persist` / `session.AsyncStore` (async persistence); integrated into the UI via agent approval panels, `/checkpoint`, `/rewind`, `/mcp`, and `/mcp-call`.
-- **P1 foundation and ecosystem**: `internal/orchestrator` multi-agent orchestration, `internal/memory` project memory/semantic search, `internal/mcpserver` MCP server basics, `internal/collab` collaboration/replay, `internal/executor` local/Docker/SSH execution, and `internal/plugin` governance (signature, permissions, sandbox, moderation).
-- **P2 enterprise and automation**: `internal/enterprise` RBAC/SSO/KMS/SIEM, `internal/automation` + `cmd/agentforge-automation` scheduling, `internal/api` + `cmd/agentforge-api` REST/Webhook API, `--headless --prompt`, and `exec` CLI with `/exec` UI panel.
+- **Agent and context engineering**: `internal/agent` (agent execution/approval state machine), `internal/contextx` (context windowing, summarization, Checkpoint/Rewind), `internal/mcp` (MCP client), and `internal/persist` / `session.AsyncStore` (async persistence); integrated into the UI via agent approval panels, `/checkpoint`, `/rewind`, `/mcp`, and `/mcp-call`.
+- **Multi-agent and execution**: `internal/orchestrator` multi-agent orchestration, `internal/memory` project memory/semantic search, `internal/executor` local/Docker/SSH execution, and `internal/plugin` governance (signature, permissions, sandbox, moderation).
+- **Plugin market CLI**: `agentforge market search/install/list` to search, install, and list plugin market entries.
+- **Doctor and no-color mode**: `agentforge doctor` checks the local environment and terminal compatibility; `--no-color` disables color/ANSI output for unsupported terminals or logs.
 - **i18n**: Chinese/English UI, switch with `--lang zh|en`, default Chinese.
 - **Local security**: AES-GCM encryption/decryption, sensitive data redaction, audit logs, and API key storage in system keychain or local encrypted files.
 - **Telemetry and updates**: optional local telemetry (JSON Lines, redacted, no network, off by default); automatic update checks (version compare + GitHub Release query, prompt only, no auto-download).
-- **Session migration**: `export` / `import` / `sync` / `sync-remote`, local batch migration, bidirectional sync, optional AES-GCM encrypted remote sync; `share` / `open` package a single session as a shareable link and import it.
-- **Release and installation**: multi-platform `make release`, `make package` producing DMG/tar.gz/zip packages, Windows `scripts/install.ps1`, GitHub Actions CI, and fuzzing.
+- **Session import/export**: `export` / `import` support local batch migration and backup.
+- **Headless and remote execution**: `--headless --prompt` can drive Provider/DSH backends without the TUI and supports `--format text|json|stream-json`; `exec` uses `internal/executor` for local, Docker, and SSH commands.
+- **Release and installation**: multi-platform `make release`, `make package` for CLI install packages, Windows `scripts/install.ps1`, GitHub Actions CI, and fuzzing.
 
 UI details:
 
@@ -217,9 +215,9 @@ Type a command in the input box and press Enter (it is not sent to the agent):
 
 If a loaded plugin declares `commands`, the command palette and input box also support those plugin commands, e.g. `/plugin:demo:status` or `/status` when there is no conflict.
 
-## Session Import / Export / Share / Sync
+## Session Import / Export
 
-Use the command line without starting the TUI for batch migration/backup/sharing of local sessions:
+Use the command line without starting the TUI for batch migration/backup of local sessions:
 
 ```bash
 # Export all sessions as JSON to a directory
@@ -227,30 +225,9 @@ agentforge export --out-dir /path/to/export
 
 # Import all sessions from an export directory (existing IDs are skipped, not overwritten)
 agentforge import --in-dir /path/to/export
-
-# Share a single session as an encrypted link (recommended; also supports DSH_SHARE_KEY)
-agentforge share --session <session-id> --key <hex-or-base64>
-
-# Import a shared link locally
-agentforge open --url 'dsh-share://...' --key <hex-or-base64>
-
-# Bidirectional sync between two data directories by UpdatedAt; newer wins
-agentforge sync --from /path/to/dir-a --to /path/to/dir-b
-
-# Push all local sessions to a remote HTTP/object storage backend (optional AES-GCM encryption)
-agentforge sync-remote --url https://host/sessions --push
-
-# Pull sessions from remote to local (newer local sessions are skipped)
-agentforge sync-remote --url https://host/sessions --pull --key <hex-or-base64>
-
-# Continuous sync: pull first, then push when no direction is given, default every 60s
-agentforge sync-remote --url https://host/sessions --watch
-
-# Continuous sync: push only every 5 minutes
-agentforge sync-remote --url https://host/sessions --push --watch --interval 5m
 ```
 
-Share links support AES-GCM keys via `--key` / `--share-key` or the `DSH_SHARE_KEY` environment variable; if no key is provided, a plaintext link is generated (marked `plain=true`). Remote sync supports AES-GCM keys via `--key` or `DSH_SYNC_KEY`; without a key it syncs over plaintext HTTP. `--watch` keeps syncing at `--interval` and is suitable for multi-device automatic sync; it exits after SIGINT (Ctrl+C) or SIGTERM. See [docs/usage.md](docs/usage.md) for details.
+See [docs/usage.md](docs/usage.md) for details.
 
 Shortcuts:
 

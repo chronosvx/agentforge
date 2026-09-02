@@ -5,12 +5,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/chronosvx/agentforge/internal/config"
-	"github.com/chronosvx/agentforge/internal/enterprise"
-	"github.com/chronosvx/agentforge/internal/executor"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/chronosvx/agentforge/internal/config"
+	"github.com/chronosvx/agentforge/internal/executor"
 )
 
 // execOptions 保存 `exec` 子命令的解析结果。
@@ -56,7 +56,7 @@ func parseExecArgs(args []string) (execOptions, error) {
 	fs.StringVar(&opts.workDir, "workdir", "", "working directory")
 	fs.Var((*stringListValue)(&opts.env), "env", "environment variable KEY=VALUE (repeatable)")
 	fs.DurationVar(&opts.timeout, "timeout", 0, "execution timeout (e.g. 5s, 1m)")
-	fs.StringVar(&opts.dataDir, "data-dir", config.DefaultDataDir, "本地数据目录（用于 SIEM/审计日志）")
+	fs.StringVar(&opts.dataDir, "data-dir", config.DefaultDataDir, "本地数据目录（默认 ~/.agentforge）")
 	if err := fs.Parse(args); err != nil {
 		return execOptions{}, err
 	}
@@ -155,36 +155,12 @@ func splitCommandLine(s string) ([]string, error) {
 	return fields, nil
 }
 
-// runExec 实现 `agentforge exec` 子命令（不指定企业身份时保持原有行为）。
+// runExec 实现 `agentforge exec` 子命令。
 func runExec(args []string) error {
-	return runExecWithIdentity(args, "", "")
-}
-
-// runExecWithIdentity 在 exec 子命令前执行 RBAC 校验，并记录 SIEM 事件。
-func runExecWithIdentity(args []string, identityUser, identityRoles string) (retErr error) {
 	opts, err := parseExecArgs(args)
 	if err != nil {
 		return err
 	}
-
-	if err := checkExecRBAC(identityUser, identityRoles); err != nil {
-		dir, _ := expandHome(opts.dataDir)
-		emitSIEM(newSIEMSink(dir), identityUser, "exec.run", "exec", "denied")
-		return err
-	}
-
-	dir, err := expandHome(opts.dataDir)
-	if err != nil {
-		return err
-	}
-	siemLog := newSIEMSink(dir)
-	defer func() {
-		result := "ok"
-		if retErr != nil {
-			result = "error"
-		}
-		emitSIEM(siemLog, identityUser, "exec.run", "exec", result)
-	}()
 
 	parts, err := splitCommandLine(opts.cmd)
 	if err != nil {
@@ -223,45 +199,4 @@ func runExecWithIdentity(args []string, identityUser, identityRoles string) (ret
 		return fmt.Errorf("exec: %w", err)
 	}
 	return nil
-}
-
-// checkExecRBAC 校验模拟企业用户是否有权执行 exec。
-//
-// 未指定 --user 时默认允许；指定了 --user 但未指定 --roles 时也默认允许；
-// 一旦提供角色，就使用 DefaultPolicy（可视为已配置策略）进行校验。
-func checkExecRBAC(user, roles string) error {
-	if strings.TrimSpace(user) == "" {
-		return nil
-	}
-	roleNames := splitRoles(roles)
-	if len(roleNames) == 0 {
-		return nil
-	}
-
-	parsed := make([]enterprise.Role, 0, len(roleNames))
-	for _, name := range roleNames {
-		role, err := enterprise.ParseRole(name)
-		if err != nil {
-			return fmt.Errorf("exec: %w", err)
-		}
-		parsed = append(parsed, role)
-	}
-
-	rbac := enterprise.NewRBAC(enterprise.DefaultPolicy())
-	u := &enterprise.User{ID: user, Name: user, Roles: parsed}
-	if !rbac.Check(u, "exec.run") {
-		return fmt.Errorf("exec: RBAC denied user %q (roles %s) from running commands", user, strings.Join(roleNames, ","))
-	}
-	return nil
-}
-
-// splitRoles 将逗号分隔的角色字符串拆分为去空白的角色名列表。
-func splitRoles(roles string) []string {
-	var out []string
-	for _, part := range strings.Split(roles, ",") {
-		if name := strings.TrimSpace(part); name != "" {
-			out = append(out, name)
-		}
-	}
-	return out
 }

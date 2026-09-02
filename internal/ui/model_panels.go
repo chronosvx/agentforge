@@ -181,10 +181,21 @@ func (m *Model) renderSidebar() string {
 }
 
 func (m *Model) accentColor() string {
-	if m.cfg != nil && m.cfg.Theme == "catppuccin" {
-		return "5"
+	if m.cfg == nil {
+		return "6"
 	}
-	return "6"
+	switch m.cfg.Theme {
+	case "catppuccin", "dracula":
+		return "5"
+	case "tokyo-night":
+		return "4"
+	case "nord":
+		return "6"
+	case "solarized":
+		return "3"
+	default:
+		return "6"
+	}
 }
 
 // closePanel 关闭当前底部面板，并清理面板内子状态。
@@ -337,13 +348,72 @@ func (m *Model) renderSessionsPanel() string {
 	}
 	var b strings.Builder
 	b.WriteString(i18n.T("panel.sessions_title") + "\n")
-	for i, s := range m.sessions {
+
+	writeSessionLine := func(i int, s session.Entry) {
 		marker := " "
-		if s.ID == m.sessionID {
-			marker = "*"
+		if i == m.sessionCursor {
+			marker = ">"
 		}
-		b.WriteString(fmt.Sprintf("%s %d. %s  %s\n", marker, i+1, sanitizeTerminalText(s.ID), s.UpdatedAt.Format("01-02 15:04")))
+		if s.ID == m.sessionID {
+			if marker == ">" {
+				marker = ">*"
+			} else {
+				marker = "*"
+			}
+		}
+		displayName := sanitizeTerminalText(s.ID)
+		if s.Title != "" {
+			displayName = sanitizeTerminalText(s.Title)
+		}
+		line := fmt.Sprintf("%s %d. %s", marker, i+1, displayName)
+		line += "  " + s.UpdatedAt.Format("01-02 15:04")
+		b.WriteString(line + "\n")
 	}
+
+	hasWorkspace := false
+	for _, s := range m.sessions {
+		if s.Workspace != "" {
+			hasWorkspace = true
+			break
+		}
+	}
+	if !hasWorkspace {
+		for i, s := range m.sessions {
+			writeSessionLine(i, s)
+		}
+		b.WriteString(i18n.T("panel.sessions_hint") + "\n")
+		return b.String()
+	}
+
+	type group struct {
+		workspace string
+		indices   []int
+	}
+	var groups []group
+	var ungrouped []int
+	groupIndex := make(map[string]int)
+	for i, s := range m.sessions {
+		if s.Workspace == "" {
+			ungrouped = append(ungrouped, i)
+			continue
+		}
+		if idx, ok := groupIndex[s.Workspace]; ok {
+			groups[idx].indices = append(groups[idx].indices, i)
+			continue
+		}
+		groupIndex[s.Workspace] = len(groups)
+		groups = append(groups, group{workspace: s.Workspace, indices: []int{i}})
+	}
+	for _, g := range groups {
+		b.WriteString(i18n.T("panel.sessions_workspace", sanitizeTerminalText(g.workspace)) + "\n")
+		for _, i := range g.indices {
+			writeSessionLine(i, m.sessions[i])
+		}
+	}
+	for _, i := range ungrouped {
+		writeSessionLine(i, m.sessions[i])
+	}
+	b.WriteString(i18n.T("panel.sessions_hint") + "\n")
 	return b.String()
 }
 

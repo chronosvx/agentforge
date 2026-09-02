@@ -2,13 +2,17 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/chronosvx/agentforge/internal/mcp"
-	"github.com/chronosvx/agentforge/internal/mcpperm"
 	"strings"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/chronosvx/agentforge/internal/i18n"
+	"github.com/chronosvx/agentforge/internal/mcp"
+	"github.com/chronosvx/agentforge/internal/mcpperm"
 )
 
 func (m *Model) mcpConnectCmd(url string) tea.Cmd {
@@ -27,7 +31,7 @@ func (m *Model) mcpConnectCmd(url string) tea.Cmd {
 	}
 }
 
-// mcpCallCmd 异步调用已连接的 MCP 工具；需要确认时挂起等待 /mcp-approve。
+// mcpCallCmd 异步调用已连接的 MCP 工具；需要确认时挂起并打开审批面板。
 func (m *Model) mcpCallCmd(name string, args map[string]any) tea.Cmd {
 	if m.mcpPolicy == nil {
 		m.mcpPolicy = mcpperm.NewPolicy(mcpperm.ModeConfirm)
@@ -48,7 +52,8 @@ func (m *Model) mcpCallCmd(name string, args map[string]any) tea.Cmd {
 	if decision.RequiresApproval {
 		m.pendingMCPName = name
 		m.pendingMCPArgs = args
-		m.status = "mcp call requires approval: /mcp-approve or /mcp-cancel"
+		m.mcpPendingOpen = true
+		m.status = i18n.T("mcp.approval_pending")
 		return nil
 	}
 
@@ -58,6 +63,9 @@ func (m *Model) mcpCallCmd(name string, args map[string]any) tea.Cmd {
 // executeMCPCall 实际执行 MCP CallTool 并返回 mcpCallMsg。
 func (m *Model) executeMCPCall(name string, args map[string]any) tea.Cmd {
 	return func() tea.Msg {
+		if m.mcpPolicy == nil {
+			m.mcpPolicy = mcpperm.NewPolicy(mcpperm.ModeConfirm)
+		}
 		decision := m.mcpPolicy.Decide(name)
 		m.auditEvent("mcp.call", map[string]any{"tool": name, "mode": string(decision.Mode), "allowed": decision.Allowed, "requiresApproval": decision.RequiresApproval})
 		if m.mcpClient == nil {
@@ -69,6 +77,89 @@ func (m *Model) executeMCPCall(name string, args map[string]any) tea.Cmd {
 		m.auditEvent("mcp.call.complete", map[string]any{"tool": name, "error": err != nil})
 		return mcpCallMsg{name: name, result: result, err: err}
 	}
+}
+
+// closeMCPApproval 关闭 MCP 审批面板并清空挂起的调用信息。
+func (m *Model) closeMCPApproval() {
+	m.mcpPendingOpen = false
+	m.pendingMCPName = ""
+	m.pendingMCPArgs = nil
+}
+
+// handleMCPApprovalKey 处理 MCP 工具审批面板的按键，返回是否已消费以及需要执行的 tea.Cmd。
+func (m *Model) handleMCPApprovalKey(key string) (bool, tea.Cmd) {
+	name := m.pendingMCPName
+	if name == "" {
+		if key == "esc" || key == "q" {
+			m.closeMCPApproval()
+			return true, nil
+		}
+		return false, nil
+	}
+	args := m.pendingMCPArgs
+
+	switch key {
+	case "a":
+		m.closeMCPApproval()
+		m.status = i18n.T("mcp.approved_once")
+		return true, m.executeMCPCall(name, args)
+	case "s":
+		if m.mcpPolicy == nil {
+			m.mcpPolicy = mcpperm.NewPolicy(mcpperm.ModeConfirm)
+		}
+		m.mcpPolicy.Set(name, mcpperm.ModeAuto)
+		m.closeMCPApproval()
+		m.status = i18n.T("mcp.always_allowed")
+		return true, m.executeMCPCall(name, args)
+	case "d":
+		m.closeMCPApproval()
+		m.status = i18n.T("mcp.denied_once")
+		return true, nil
+	case "n":
+		if m.mcpPolicy == nil {
+			m.mcpPolicy = mcpperm.NewPolicy(mcpperm.ModeConfirm)
+		}
+		m.mcpPolicy.Set(name, mcpperm.ModeDeny)
+		m.closeMCPApproval()
+		m.status = i18n.T("mcp.denied_and_remembered")
+		return true, nil
+	case "esc", "q":
+		m.closeMCPApproval()
+		m.status = "mcp call cancelled"
+		return true, nil
+	}
+	return false, nil
+}
+
+// renderMCPApproval 渲染 MCP 工具审批面板。
+func (m *Model) renderMCPApproval() string {
+	style := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("3")).
+		Padding(0, 1).
+		Width(72).
+		MaxHeight(20)
+
+	var b strings.Builder
+	b.WriteString(i18n.T("mcp.approval_title") + "\n\n")
+	if m.pendingMCPName != "" {
+		b.WriteString(i18n.T("mcp.approval_tool", m.pendingMCPName) + "\n")
+	} else {
+		b.WriteString(i18n.T("mcp.approval_tool", "(none)") + "\n")
+	}
+	argsText := "{}"
+	if len(m.pendingMCPArgs) > 0 {
+		if data, err := json.Marshal(m.pendingMCPArgs); err == nil {
+			argsText = string(data)
+		}
+	}
+	b.WriteString(i18n.T("mcp.approval_args", argsText) + "\n")
+	if m.mcpPolicy != nil {
+		mode := m.mcpPolicy.Mode(m.pendingMCPName)
+		b.WriteString(fmt.Sprintf("Policy: %s\n", mode))
+	}
+	b.WriteString("\n" + i18n.T("mcp.approval_hint"))
+	return "\n" + style.Render(b.String())
 }
 
 // startMultiAgent 启动一个多 Agent 并行执行任务，并打开多 Agent 面板。

@@ -126,6 +126,7 @@ func TestParseKeychainDefaultsFalse(t *testing.T) {
 }
 
 func TestParseProviderDefaults(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	cfg, err := config.Parse([]string{"--provider", "ollama"})
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -211,5 +212,36 @@ func TestParseEncryptSessionsFlag(t *testing.T) {
 	}
 	if !cfg.EncryptSessions {
 		t.Fatal("expected EncryptSessions true")
+	}
+}
+
+func TestParseNoColorFlag(t *testing.T) {
+	cfg, err := config.Parse([]string{"--no-color"})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !cfg.NoColor {
+		t.Fatal("expected NoColor true")
+	}
+}
+
+func TestParseNoColorDefaultsFalse(t *testing.T) {
+	cfg, err := config.Parse(nil)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if cfg.NoColor {
+		t.Fatal("expected NoColor false by default")
+	}
+}
+
+func TestParseNoColorEnv(t *testing.T) {
+	t.Setenv("DSH_NO_COLOR", "true")
+	cfg, err := config.Parse(nil)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !cfg.NoColor {
+		t.Fatal("expected NoColor true from DSH_NO_COLOR")
 	}
 }

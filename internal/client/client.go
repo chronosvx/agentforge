@@ -1,5 +1,7 @@
 // Package client 实现 DSH TUI Channel (tui.dsh/v1alpha1) 的 WebSocket 客户端。
 //
+// 本包对应 tui.dsh/v1alpha1 实验性协议；生产接入请优先使用 internal/dshapi 的 DSH Web API。
+//
 // 当前实现保持最小可用：使用 github.com/coder/websocket 传输 JSON 帧，
 // 并尽量兼容服务端不同的信封形式（operation/value 嵌套或顶层字段）。
 package client

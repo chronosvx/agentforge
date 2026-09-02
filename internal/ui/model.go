@@ -92,13 +92,14 @@ const (
 
 // commandPaletteCommands 是命令面板中可搜索并执行的本地命令。
 var commandPaletteCommands = []string{
-	"/context", "/cost", "/diff", "/todos", "/tools", "/skills", "/sessions",
+	"/context", "/cost", "/diff", "/todos", "/tools", "/skills", "/sessions", "/resume",
 	"/plugin", "/search", "/find", "/right", "/split", "/model", "/new", "/rename", "/export",
-	"/delete", "/close", "/skill-install", "/skill-sync", "/help",
+	"/delete", "/close", "/clear", "/status", "/skill-install", "/skill-sync", "/help",
 	"/agent", "/agent-new", "/agent-reset", "/checkpoint", "/rewind", "/mcp", "/mcp-call",
 	"/mcp-approve", "/mcp-cancel", "/mcp-auto", "/mcp-confirm", "/mcp-deny", "/mcp-audit",
 	"/timeline", "/fork", "/remember", "/forget", "/memory",
 	"/exec", "/multi", "/multi-run", "/agents",
+	"/agentview", "/history", "/compact",
 }
 
 // basicCommandPaletteCommands 是默认命令面板/帮助中优先展示的基础命令。
@@ -108,7 +109,8 @@ var basicCommandPaletteCommands = []string{
 	"/diff", "/todos", "/tools", "/skills",
 	"/context", "/cost", "/right", "/split",
 	"/exec", "/agent", "/agent-new", "/multi", "/multi-run", "/agents",
-	"/model", "/rename", "/delete", "/export", "/close", "/memory",
+	"/agentview", "/history", "/compact",
+	"/model", "/rename", "/delete", "/export", "/close", "/clear", "/status", "/memory",
 }
 
 // isBasicCommand 判断命令是否属于默认基础命令集合。
@@ -129,31 +131,62 @@ type Model struct {
 	asyncStore *session.AsyncStore
 	auditFn    func(event string, fields map[string]any)
 
-	sessionID   string
-	channelID   string
-	events      <-chan client.Event
-	eventCancel context.CancelFunc
+	sessionID    string
+	sessionTitle string
+	channelID    string
+	events       <-chan client.Event
+	eventCancel  context.CancelFunc
 
 	messages        []client.Message
 	status          string
 	err             error
 	updateAvailable string
 
-	context      map[string]any
-	cost         map[string]any
-	tokenUsage   map[string]any
-	diffs        []any
-	todos        []any
-	tools        []any
-	skills       []skill.Entry
-	localSkills  []skill.Entry
-	remoteSkills []skill.Entry
-	sessions     []session.Entry
-	allSessions  []session.Entry
-	tabs         []session.Entry
-	tabIndex     int
-	panel        panelKind
-	sessionQuery string
+	context       map[string]any
+	cost          map[string]any
+	tokenUsage    map[string]any
+	diffs         []any
+	todos         []any
+	tools         []any
+	skills        []skill.Entry
+	localSkills   []skill.Entry
+	remoteSkills  []skill.Entry
+	sessions      []session.Entry
+	allSessions   []session.Entry
+	tabs          []session.Entry
+	tabIndex      int
+	panel         panelKind
+	sessionQuery  string
+	sessionCursor int
+
+	// History search (Ctrl+R).
+	history              []string
+	historySearchOpen    bool
+	historySearchQuery   string
+	historySearchCursor  int
+	historySearchResults []string
+
+	// @ file reference completion.
+	mentionOpen    bool
+	mentionQuery   string
+	mentionCursor  int
+	mentionResults []string
+
+	// Agent View / session overview.
+	agentViewOpen   bool
+	agentViewCursor int
+	agentViewQuery  string
+
+	// Rewind (double Esc).
+	rewindOpen       bool
+	rewindCursor     int
+	rewindCandidates []client.Message
+	lastEscAt        time.Time
+
+	// HUD / streaming speed.
+	tps            float64
+	lastTokenTotal int
+	lastTokenAt    time.Time
 
 	commandPaletteOpen     bool
 	commandPaletteQuery    string
@@ -182,6 +215,7 @@ type Model struct {
 	mcpAudit       *mcpperm.AuditLog
 	pendingMCPName string
 	pendingMCPArgs map[string]any
+	mcpPendingOpen bool
 	window         *contextx.Window
 	checkpoints    *contextx.CheckpointStore
 	timeline       *timeline.Timeline
@@ -219,6 +253,8 @@ type Model struct {
 
 	costLimit   float64
 	costAlerted bool
+
+	keybindings map[string]string
 
 	input          textarea.Model
 	viewport       viewport.Model
@@ -277,6 +313,11 @@ func New(cfg *config.Config, cl ChatBackend, store session.LocalStore, auditFn .
 		timeline:      timeline.New(),
 		followBottom:  true,
 	}
+	if cfg != nil {
+		m.keybindings = loadKeybindings(cfg.DataDir)
+	} else {
+		m.keybindings = loadKeybindings("")
+	}
 	if cfg != nil && cfg.DataDir != "" {
 		if ms, err := memory.NewStore(cfg.DataDir); err == nil {
 			m.memoryStore = ms
@@ -305,6 +346,9 @@ func New(cfg *config.Config, cl ChatBackend, store session.LocalStore, auditFn .
 			m.diffs = entry.Diffs
 			m.todos = entry.Todos
 			m.tools = entry.Tools
+			if entry.Title != "" {
+				m.sessionTitle = entry.Title
+			}
 			m.syncSkillsFromMessages()
 			m.syncWindowFromMessages()
 			m.status = "resumed: " + m.sessionID
@@ -426,6 +470,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncSkillsFromMessages()
 		m.syncUsageFromState(msg.event.State)
 		m.syncTokenUsageFromState(msg.event.State)
+		m.updateTPS()
 		m.syncDiffsFromState(msg.event.State)
 		m.syncTodosFromState(msg.event.State)
 		m.syncToolsFromState(msg.event.State)
@@ -584,6 +629,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.sessionEpoch++
 		m.sessionID = msg.id
+		m.sessionTitle = ""
 		m.auditEvent("session.switch", map[string]any{"sessionId": msg.id})
 		m.channelID = ""
 		m.events = nil
@@ -612,6 +658,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.diffs = entry.Diffs
 				m.todos = entry.Todos
 				m.tools = entry.Tools
+				if entry.Title != "" {
+					m.sessionTitle = entry.Title
+				}
 				m.syncSkillsFromMessages()
 			}
 		}
@@ -653,6 +702,59 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !skipInputUpdate {
 			key := msg.String()
 
+			// 覆盖式面板：历史搜索 / 时间回溯 / 会话总览优先于普通输入。
+			if m.historySearchOpen {
+				if key == "ctrl+c" {
+					m.closeHistorySearch()
+					return m, tea.Batch(cmds...)
+				}
+				if m.handleHistoryKey(key) {
+					return m, tea.Batch(cmds...)
+				}
+				return m, tea.Batch(cmds...)
+			}
+			if m.rewindOpen {
+				if key == "ctrl+c" {
+					m.closeRewind()
+					return m, tea.Batch(cmds...)
+				}
+				if m.handleRewindKey(key) {
+					return m, tea.Batch(cmds...)
+				}
+				return m, tea.Batch(cmds...)
+			}
+			if m.agentViewOpen {
+				if key == "ctrl+c" {
+					m.closeAgentView()
+					return m, tea.Batch(cmds...)
+				}
+				if handled, viewCmd := m.handleAgentViewKey(key); handled {
+					if viewCmd != nil {
+						cmds = append(cmds, viewCmd)
+					}
+					return m, tea.Batch(cmds...)
+				}
+				return m, tea.Batch(cmds...)
+			}
+
+			// MCP 工具审批面板打开时，优先处理审批按键。
+			if m.mcpPendingOpen {
+				if handled, approvalCmd := m.handleMCPApprovalKey(key); handled {
+					if approvalCmd != nil {
+						cmds = append(cmds, approvalCmd)
+					}
+					return m, tea.Batch(cmds...)
+				}
+				return m, tea.Batch(cmds...)
+			}
+
+			// @ 文件补全浮层打开时，优先处理浮层内按键。
+			if m.mentionOpen {
+				if m.handleMentionKey(key) {
+					return m, tea.Batch(cmds...)
+				}
+			}
+
 			// 帮助面板打开时，优先处理帮助内按键。
 			if m.helpOpen {
 				if m.handleHelpKey(key) {
@@ -666,9 +768,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-			// 全局快捷键：Ctrl+/ 总是打开帮助；? 仅在输入框为空时打开帮助。
-			if key == "ctrl+/" || key == "ctrl+_" || key == "ctrl+?" || (key == "?" && m.input.Value() == "") {
+			// 全局快捷键：按配置打开帮助；? 仅在输入框为空时打开帮助。
+			if m.isKey("help", key) || (key == "?" && m.input.Value() == "") {
+				m.closeMention()
 				m.openHelp()
+				return m, tea.Batch(cmds...)
+			}
+
+			// 按配置打开输入历史搜索。
+			if m.isKey("history", key) {
+				m.closeMention()
+				m.openHistorySearch()
 				return m, tea.Batch(cmds...)
 			}
 
@@ -692,10 +802,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.closePanel()
 					return m, tea.Batch(cmds...)
 				}
+				// 双击 Esc：空输入时第一次“武装”，第二次打开时间回溯。
+				if m.input.Value() == "" {
+					now := time.Now()
+					if !m.lastEscAt.IsZero() && now.Sub(m.lastEscAt) <= 1500*time.Millisecond {
+						m.lastEscAt = time.Time{}
+						m.openRewind()
+						return m, tea.Batch(cmds...)
+					}
+					m.lastEscAt = now
+					m.status = i18n.T("rewind.armed")
+					return m, tea.Batch(cmds...)
+				}
 			}
 
 			// Tab：在面板/右侧栏/分屏存在时切换“输入聚焦/面板聚焦”。
 			if key == "tab" && (m.panel != panelNone || m.rightPanel || m.splitEnabled) {
+				m.closeMention()
 				m.panelFocused = !m.panelFocused
 				if m.panelFocused {
 					m.status = "panel focus: panel (Tab 返回输入, Esc 关闭)"
@@ -744,6 +867,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, tea.Batch(cmds...)
 					}
 					if m.handleSplitKey(key) {
+						return m, tea.Batch(cmds...)
+					}
+				}
+				// Multi-Agent 面板内的键盘操作：由 handleMultiKey 处理导航/操作。
+				if m.panel == panelMulti {
+					if m.handleMultiKey(key) {
 						return m, tea.Batch(cmds...)
 					}
 				}
@@ -810,20 +939,68 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, tea.Batch(cmds...)
 					}
 				}
-				// 在会话面板中按数字键切换本地会话。
+				// 会话面板：j/k/↑/↓/Ctrl+N 浏览，Enter 切换，n 新建，数字快速切换。
 				if m.panel == panelSessions {
-					if idx, ok := digitIndex(key); ok && idx >= 0 && idx < len(m.sessions) {
-						target := m.sessions[idx].ID
-						if target != m.sessionID {
-							cmds = append(cmds, switchSessionCmd(target))
+					switch key {
+					case "j", "down", "ctrl+n":
+						if len(m.sessions) == 0 {
+							m.sessionCursor = 0
+							return m, tea.Batch(cmds...)
+						}
+						if m.sessionCursor < 0 {
+							m.sessionCursor = 0
+						}
+						if m.sessionCursor > len(m.sessions)-1 {
+							m.sessionCursor = len(m.sessions) - 1
+						}
+						if m.sessionCursor < len(m.sessions)-1 {
+							m.sessionCursor++
 						}
 						return m, tea.Batch(cmds...)
+					case "k", "up":
+						if len(m.sessions) == 0 {
+							m.sessionCursor = 0
+							return m, tea.Batch(cmds...)
+						}
+						if m.sessionCursor < 0 {
+							m.sessionCursor = 0
+						}
+						if m.sessionCursor > len(m.sessions)-1 {
+							m.sessionCursor = len(m.sessions) - 1
+						}
+						if m.sessionCursor > 0 {
+							m.sessionCursor--
+						}
+						return m, tea.Batch(cmds...)
+					case "enter":
+						if m.sessionCursor >= 0 && m.sessionCursor < len(m.sessions) {
+							selected := m.sessions[m.sessionCursor]
+							if selected.ID != "" && selected.ID != m.sessionID {
+								cmds = append(cmds, switchSessionCmd(selected.ID))
+								return m, tea.Batch(cmds...)
+							}
+						}
+						m.closePanel()
+						return m, tea.Batch(cmds...)
+					case "n":
+						m.requestNewSessionFromPanel()
+						// 不在此处 return：让 Update 末尾的 pendingNew 流程在同一轮完成新建。
+						skipInputUpdate = true
+					default:
+						if idx, ok := digitIndex(key); ok && idx >= 0 && idx < len(m.sessions) {
+							target := m.sessions[idx].ID
+							if target != m.sessionID {
+								cmds = append(cmds, switchSessionCmd(target))
+							}
+							return m, tea.Batch(cmds...)
+						}
 					}
 				}
 			}
 
 			switch key {
-			case "ctrl+p":
+			case m.key("palette"):
+				m.closeMention()
 				m.openCommandPalette()
 				return m, tea.Batch(cmds...)
 			case "ctrl+c":
@@ -853,6 +1030,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					break
 				}
 				m.input.SetValue("")
+				m.appendHistory(text)
 				if strings.HasPrefix(text, "/") {
 					if cmd := m.handleCommand(text); cmd != nil {
 						cmds = append(cmds, cmd)
@@ -884,6 +1062,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.sessionEpoch++
 		m.sessionID = ""
+		m.sessionTitle = ""
 		m.auditEvent("session.new", map[string]any{"previousSessionId": previousSessionID})
 		m.channelID = ""
 		m.events = nil
@@ -911,6 +1090,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		cmds = append(cmds, cmd)
+		if _, ok := msg.(tea.KeyMsg); ok {
+			m.syncMentionFromInput()
+		}
 
 		// 虚拟滚动由 UI 层自己处理，避免 viewport 只对窗口切片做局部滚动。
 		if m.ready && isViewportScrollMsg(msg) {
@@ -999,21 +1181,7 @@ func (m Model) View() string {
 		inputView += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(sanitizeTerminalText(m.err.Error()))
 	}
 
-	statusPrefix := "• "
-	statusText := sanitizeTerminalText(m.status)
-	switch {
-	case m.err != nil:
-		statusPrefix = "✖ "
-	case (m.costAlerted || strings.Contains(statusText, "error") || strings.Contains(statusText, "⚠")) && !strings.HasPrefix(statusText, "⚠"):
-		statusPrefix = "⚠ "
-	}
-	updateText := ""
-	if m.updateAvailable != "" {
-		updateText = " | ⬆ " + sanitizeTerminalText(m.updateAvailable)
-	}
-	statusLine := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("8")).
-		Render(fmt.Sprintf(" %s%s | session: %s | channel: %s%s | %s ", statusPrefix, statusText, sanitizeTerminalText(m.sessionID), sanitizeTerminalText(m.channelID), updateText, i18n.T("status.hint_help")))
+	statusLine := m.renderStatusBar()
 
 	panelView := m.renderPanel()
 	helpView := ""
@@ -1024,8 +1192,28 @@ func (m Model) View() string {
 	if m.commandPaletteOpen {
 		paletteView = m.renderCommandPalette()
 	}
+	historyView := ""
+	if m.historySearchOpen {
+		historyView = m.renderHistorySearch()
+	}
+	rewindView := ""
+	if m.rewindOpen {
+		rewindView = m.renderRewind()
+	}
+	agentView := ""
+	if m.agentViewOpen {
+		agentView = m.renderAgentView()
+	}
+	mcpApprovalView := ""
+	if m.mcpPendingOpen {
+		mcpApprovalView = m.renderMCPApproval()
+	}
+	mentionView := ""
+	if m.mentionOpen {
+		mentionView = m.renderMention()
+	}
 	tabBar := m.renderTabs()
-	main := style.Render(tabBar + "\n" + m.viewport.View() + panelView + helpView + paletteView + "\n" + inputView + "\n" + statusLine)
+	main := style.Render(tabBar + "\n" + m.viewport.View() + panelView + helpView + paletteView + historyView + rewindView + agentView + mcpApprovalView + mentionView + "\n" + inputView + "\n" + statusLine)
 
 	parts := make([]string, 0, 3)
 	if sidebar := m.renderSidebar(); sidebar != "" {
@@ -1189,6 +1377,14 @@ func switchSessionCmd(id string) tea.Cmd {
 	return func() tea.Msg {
 		return switchSessionMsg{id: id}
 	}
+}
+
+// requestNewSessionFromPanel 在会话面板中请求新建会话：先记录 pendingNew，
+// 再关闭面板；实际新建动作由 Update 末尾的 pendingNew 流程统一执行。
+func (m *Model) requestNewSessionFromPanel() {
+	m.sessionTitle = ""
+	m.pendingNew = true
+	m.closePanel()
 }
 
 func digitIndex(s string) (int, bool) {

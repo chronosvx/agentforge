@@ -289,7 +289,11 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 	case "/checkpoint":
 		m.handleCheckpointCommand(cmd)
 	case "/rewind":
-		m.handleRewindCommand(cmd)
+		if strings.TrimSpace(strings.TrimPrefix(cmd, "/rewind")) == "" {
+			m.openRewind()
+		} else {
+			m.handleRewindCommand(cmd)
+		}
 	case "/mcp":
 		url := strings.TrimSpace(strings.TrimPrefix(cmd, "/mcp"))
 		if url == "" {
@@ -331,11 +335,13 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 		args := m.pendingMCPArgs
 		m.pendingMCPName = ""
 		m.pendingMCPArgs = nil
+		m.mcpPendingOpen = false
 		m.status = "mcp call approved: " + name
 		return m.executeMCPCall(name, args)
 	case "/mcp-cancel":
 		m.pendingMCPName = ""
 		m.pendingMCPArgs = nil
+		m.mcpPendingOpen = false
 		m.status = "mcp call cancelled"
 	case "/mcp-auto":
 		tool := strings.TrimSpace(strings.TrimPrefix(cmd, "/mcp-auto"))
@@ -442,6 +448,20 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 		} else {
 			m.panel = panelMulti
 		}
+	case "/agentview":
+		if m.agentViewOpen {
+			m.closeAgentView()
+		} else {
+			m.openAgentView()
+		}
+	case "/history":
+		if m.historySearchOpen {
+			m.closeHistorySearch()
+		} else {
+			m.openHistorySearch()
+		}
+	case "/compact":
+		m.handleCompactCommand()
 	case "/exec":
 		rest := strings.TrimSpace(strings.TrimPrefix(cmd, "/exec"))
 		if rest == "" {
@@ -482,6 +502,20 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 		m.searchCursor = 0
 		m.panel = panelSearch
 		m.status = i18n.T("status.find_results", len(m.searchResults))
+	case "/clear":
+		m.messages = nil
+		m.context = nil
+		m.cost = nil
+		m.diffs = nil
+		m.todos = nil
+		m.tools = nil
+		m.searchResults = nil
+		m.searchCursor = 0
+		m.dirty = true
+		m.followBottom = true
+		m.status = i18n.T("status.cleared")
+	case "/status":
+		m.status = m.statusSummary()
 	case "/right":
 		m.rightPanel = !m.rightPanel
 		m.applyLayout()
@@ -499,7 +533,7 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 			m.splitSessionID = ""
 		}
 		m.applyLayout()
-	case "/sessions":
+	case "/sessions", "/resume":
 		if m.panel == panelSessions {
 			m.closePanel()
 		} else {
@@ -554,6 +588,7 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 		}
 		m.status = i18n.T("status.model_switched", modelArg)
 	case "/new":
+		m.sessionTitle = ""
 		m.pendingNew = true
 		m.status = "new session..."
 	case "/export":
@@ -579,6 +614,7 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 			if err := m.store.Save(*entry); err != nil {
 				m.status = "rename error: " + err.Error()
 			} else {
+				m.sessionTitle = title
 				m.status = "renamed: " + title
 			}
 		} else {
@@ -615,6 +651,50 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 		m.status = i18n.T("status.unknown_command", cmd)
 	}
 	return nil
+}
+
+func (m *Model) statusSummary() string {
+	workspace := m.workspaceDir()
+	theme := "default"
+	lang := string(i18n.CurrentLang())
+	if m.cfg != nil {
+		if m.cfg.Theme != "" {
+			theme = m.cfg.Theme
+		}
+		if m.cfg.Lang != "" {
+			lang = m.cfg.Lang
+		}
+	}
+	return fmt.Sprintf("%s · theme: %s · lang: %s",
+		i18n.T("status.summary", m.sessionID, workspace, len(m.messages), m.statusTokenCount(), m.statusCost()),
+		theme, lang)
+}
+
+func (m *Model) statusTokenCount() string {
+	if m.tokenUsage != nil {
+		if v, ok := m.tokenUsage["totalTokens"]; ok && v != nil {
+			return fmt.Sprint(v)
+		}
+	}
+	if tokens, ok := currentOutputTokens(m.tokenUsage, m.context); ok {
+		return fmt.Sprint(tokens)
+	}
+	if m.context != nil {
+		if v, ok := m.context["totalTokens"]; ok && v != nil {
+			return fmt.Sprint(v)
+		}
+	}
+	return "-"
+}
+
+func (m *Model) statusCost() string {
+	if m.cost == nil {
+		return "-"
+	}
+	if v, ok := m.cost["estimatedYuan"]; ok && v != nil {
+		return fmt.Sprint(v)
+	}
+	return "-"
 }
 
 func (m *Model) pluginCommand(name string, args []string) tea.Cmd {

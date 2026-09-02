@@ -29,8 +29,14 @@
 # 安装后先自检环境
 agentforge doctor
 
+# 首次运行向导：选择后端并生成/更新本地配置（Mock / DSH Web API / Provider 直连）
+agentforge setup
+
 # 生成配置（Provider / API URL / Keychain / 加密会话）
 agentforge init --provider deepseek --model deepseek-chat
+
+# 在当前项目生成 AGENT.md 项目上下文
+agentforge project-init
 
 # 查看当前配置（密钥自动打码）
 agentforge config
@@ -39,88 +45,90 @@ agentforge config
 agentforge --mock
 ```
 
-## 🖥️ 桌面 GUI（预览）
-
-> 桌面 GUI 是 Flutter 编写的 macOS 客户端（首个目标平台），用于可视化操作 AgentForge。
-
-- 启动本地 daemon：`agentforge serve`
-- 运行 GUI：`cd gui && flutter run -d macos`，或直接构建：`make gui-macos`
-- 当前包含：Agent 运行面板、记忆浏览、时间线/会话浏览、连接状态
-- 后续目标：Windows / Linux / 移动端
-
 ## 文档
 
 - 零基础快速开始： [docs/QUICKSTART.md](docs/QUICKSTART.md)
 - 总览： [docs/overview.md](docs/overview.md)
 - 完整使用说明： [docs/usage.md](docs/usage.md)
-- 架构说明： [docs/architecture.md](docs/architecture.md)
 - 更新日志： [CHANGELOG.md](CHANGELOG.md)
 
 ## 设计目标
 
-- 通过 `tui.dsh/v1alpha1` Channel 协议连接 DSH，而不是重新实现 Agent Harness。
-- 兼顾性能与长期维护：Go 单二进制、低内存、高渲染性能。
-- 已实现：真实 DSH Web API / Channel 接入、流式聊天、多会话工作区、Context/Cost/Diff/Todo 面板、Provider 直连、i18n、安全、企业 RBAC/SIEM、自动化调度、遥测与更新检查，以及 Agent / 上下文工程 / MCP Client / 异步持久化等 P0 基础包。
-- 当前聚焦：Agent 主流程、Repo Mode、自然语言执行、Patch-to-PR、Checkpoint 时间线、MCP 权限中心、离线队列与项目记忆。
-- 暂停优先投入：企业四件套、插件市场治理、团队协作、MCP Server；保留已有基础代码，不再扩展。
+- 以终端 TUI / CLI 为核心交付：Go 单二进制、低内存、高渲染性能。
+- 真实接入以 DSH Web API（HTTP + WebSocket）为主；`tui.dsh/v1alpha1` Channel 为实验性/预留协议，不作为官方稳定接入方式。
+- 当前聚焦：Agent 主流程、Repo Mode、自然语言执行、Patch-to-PR、Checkpoint 时间线、MCP Client 权限中心、离线队列与项目记忆。
 
 ## 项目结构
 
 ```text
-cmd/agentforge/      入口
-cmd/agentforge-automation/  定时/CI 自动化调度入口（加载 JSON Job）
-cmd/agentforge-api/  HTTP API / Webhook 服务入口
-internal/api/        开放 HTTP API 与 Webhook Notifier
-internal/automation/ 轻量任务调度器（Interval/Cron）
-internal/enterprise/ 企业基础能力：RBAC、SSO、KMS、SIEM
-internal/dshapi/      真实 DSH Web API 客户端与 Backend 适配
-internal/client/      DSH Channel WebSocket 客户端
-internal/session/     会话状态、持久化与导入/导出/同步（含 AsyncStore 异步存储）
-internal/agent/       Agent 执行闭环后端：计划、审批、执行、测试、Diff 评审、回滚状态机
-internal/contextx/    长会话上下文窗口管理、压缩摘要、Checkpoint/Rewind
-internal/mcp/         MCP Client：JSON-RPC 2.0、HTTP/SSE 与 stdio 传输、工具列表/调用
-internal/persist/     通用异步持久化队列（Writer）
-internal/share/       会话分享链接（AES-GCM 加密 / 明文）
-internal/skill/       Skill 本地安装/仓库克隆/远端 manifest 同步
-internal/provider/    直连模型厂商：OpenAI 兼容客户端、代理、路由/故障转移、定价与上下文窗口
-internal/secret/      API Key 安全存储：系统 Keychain / 本地 AES-GCM 加密文件
-internal/offline/     本地 JSON 离线消息队列
-internal/security/    AES-GCM 加密、脱敏、审计日志
-internal/plugin/      插件市场/签名/权限/沙箱
-internal/cost/        成本估算与预算管理
-internal/ui/          Bubble Tea UI
-internal/i18n/        轻量国际化语言包（zh / en）
-internal/config/      配置与 CLI 参数
-internal/telemetry/   可选本地遥测（JSON Lines，脱敏，不联网）
-internal/update/      自动更新检查（版本比较 + GitHub Release 查询）
+cmd/agentforge/         入口（TUI / CLI）
+cmd/agentforge-smoke    DSH Web API 冒烟/验收工具
+internal/dshapi/        真实 DSH Web API 客户端与 Backend 适配
+internal/client/        DSH Channel WebSocket 客户端（实验性/预留）
+internal/session/       会话状态与本地持久化（含 AsyncStore 异步存储）
+internal/agent/         Agent 执行闭环后端：计划、审批、执行、测试、Diff 评审、回滚状态机
+internal/contextx/      长会话上下文窗口管理、压缩摘要、Checkpoint/Rewind
+internal/mcp/           MCP Client：JSON-RPC 2.0、HTTP/SSE 与 stdio 传输、工具列表/调用
+internal/persist/       通用异步持久化队列（Writer）
+internal/skill/         Skill 本地安装/仓库克隆/远端 manifest 同步
+internal/provider/      直连模型厂商：OpenAI 兼容客户端、代理、路由/故障转移、定价与上下文窗口
+internal/secret/        API Key 安全存储：系统 Keychain / 本地 AES-GCM 加密文件
+internal/offline/       本地 JSON 离线消息队列
+internal/security/      AES-GCM 加密、脱敏、审计日志
+internal/plugin/        插件市场/签名/权限/沙箱
+internal/cost/          成本估算与预算管理
+internal/executor/      本地 / Docker / SSH 命令执行
+internal/orchestrator/  多 Agent 协作与任务编排
+internal/memory/        项目记忆 / 语义检索
+internal/ui/            Bubble Tea UI
+internal/i18n/          轻量国际化语言包（zh / en）
+internal/config/        配置与 CLI 参数
+internal/telemetry/     可选本地遥测（JSON Lines，脱敏，不联网）
+internal/update/        自动更新检查（版本比较 + GitHub Release 查询）
 ```
 
 ## 当前能力
 
-已实现可运行、可连接真实 DSH Web API 的 v0.3.0 功能集（P0/P1/P2 主要能力已并入）：
+当前核心能力围绕终端 TUI / CLI 客户端：
 
-- **DSH 客户端与真实 API**：`internal/dshapi` 接入 DSH Web API（HTTP RPC + WebSocket 事件流），支持 seq 断点续传、自动重连与真实会话恢复；`internal/client` 保留 Channel WebSocket 客户端。
-- **TUI 工作台**：Bubble Tea 聊天界面、流式渲染与虚拟滚动/增量渲染、命令面板、多行输入、多会话 Tab/分屏、Context/Cost/Diff/Todo/Tools/Skills/Plugin 面板、会话搜索与历史全文搜索，以及 `/exec` 执行面板。
+- **DSH 客户端与真实 API**：`internal/dshapi` 接入 DSH Web API（HTTP RPC + WebSocket 事件流），支持 seq 断点续传、自动重连与真实会话恢复；`internal/client` 保留实验性/预留的 Channel WebSocket 客户端（对应 `tui.dsh/v1alpha1`，非官方稳定协议）。
+- **TUI 工作台**：Bubble Tea 聊天界面、流式渲染与虚拟滚动/增量渲染、命令面板、多行输入、`@` 文件引用与自动补全、多会话 Tab/分屏、Context/Cost/Diff/Todo/Tools/Skills/Plugin 面板、会话搜索与历史全文搜索、输入历史搜索（`Ctrl+R`）、会话总览（`/agentview`）、时间回溯（空输入双击 `Esc`）、常驻 HUD（上下文/成本/TPS）、`/clear` 清空当前会话、`/status` 状态摘要、`/compact` 上下文压缩，以及 `/exec` 执行面板。
+- **键位自定义**：可通过 `<data-dir>/keybindings.json` 自定义 help/palette/history 等全局键位。
 - **Provider 直连**：`internal/provider` 提供 OpenAI 兼容客户端、多 API Key 轮询、路由/故障转移、错误映射、成本单价表与模型上下文窗口注册表；支持 HTTP/HTTPS/SOCKS5 代理与本地离线消息队列。
-- **P0 基础包与 UI 接入**：`internal/agent` 提供 Agent 执行闭环/审批状态机；`internal/contextx` 提供长会话上下文窗口管理、压缩摘要与 Checkpoint/Rewind；`internal/mcp` 提供 MCP Client（JSON-RPC 2.0、HTTP/SSE/stdio、工具列表/调用）；`internal/persist` 与 `session.AsyncStore` 提供异步持久化，`Save` 不阻塞 UI；以上能力已接入 UI（Agent 审批面板、`/checkpoint`、`/rewind`、`/mcp`、`/mcp-call`）。
-- **P1 基础与生态**：`internal/orchestrator` 多 Agent 协作与任务编排；`internal/memory` 项目记忆/语义检索；`internal/mcpserver` MCP Server 基础；`internal/collab` 团队协作/回放；`internal/executor` 统一本地/Docker/SSH 命令执行；`internal/plugin` 插件治理（签名、权限、沙箱、审核）。
+- **Agent 与上下文工程**：`internal/agent` 提供 Agent 执行闭环/审批状态机；`internal/contextx` 提供长会话上下文窗口管理、压缩摘要与 Checkpoint/Rewind；`internal/mcp` 提供 MCP Client（JSON-RPC 2.0、HTTP/SSE/stdio、工具列表/调用）；`internal/persist` 与 `session.AsyncStore` 提供异步持久化，`Save` 不阻塞 UI；以上能力已接入 UI（Agent 审批面板、`/checkpoint`、`/rewind`、`/mcp`、`/mcp-call`）。
+- **多 Agent 与执行**：`internal/orchestrator` 多 Agent 协作与任务编排；`internal/memory` 项目记忆/语义检索；`internal/executor` 统一本地/Docker/SSH 命令执行；`internal/plugin` 插件治理（签名、权限、沙箱、审核）。
+- **插件市场 CLI**：`agentforge market search/install/list`，可直接从命令行搜索、安装和列出插件市场条目。
+- **doctor 终端诊断与无颜色模式**：`agentforge doctor` 提供终端兼容性诊断；`--no-color` 可关闭颜色/ANSI 输出，便于不支持颜色的终端或管道日志。
 - **i18n 国际化**：中/英文界面，`--lang zh|en` 切换，默认中文。
 - **本地安全**：AES-GCM 加解密、敏感信息脱敏、审计日志，以及 API Key 系统 Keychain / 本地加密文件存储。
-- **企业能力**：`internal/enterprise` 提供 RBAC（admin/member/auditor/guest）、SSO 抽象、KMS 与 SIEM；CLI 支持 `--user` / `--roles` 模拟身份，`exec` 前执行 RBAC 校验，关键事件写入 `<data-dir>/siem.log`。
-- **自动化调度**：`internal/automation` 提供轻量 Interval/Cron 调度器，`cmd/agentforge-automation` 从 JSON 加载 Job 并触发 Headless 任务，适合定时、CI 与 Webhook 旁路调度。
 - **遥测与更新**：可选本地遥测（JSON Lines、脱敏、不联网，默认关闭）；自动更新检查（版本比较 + GitHub Release 查询，仅提示不自动下载）。
-- **会话迁移**：`export` / `import` / `sync` / `sync-remote`，支持本地批量迁移、双向同步与可选 AES-GCM 加密的远程同步；`share` / `open` 可把单个会话打包为可分享链接并导入。
-- **非交互与远程执行**：`--headless --prompt` 可不启动 TUI 直接调用 Provider/DSH 后端并打印结果；`exec` 子命令复用 `internal/executor` 支持本地、Docker 容器和 SSH 远程命令执行。
-- **开放 API / Webhook**：`cmd/agentforge-api` 提供 REST 接口（创建会话、发送 prompt、查询会话、健康检查），支持 Bearer Token 鉴权与异步 Webhook 事件通知；`internal/api` 不依赖 UI 核心逻辑。
-- **发布与安装**：多平台 `make release`、`make package` 生成 DMG/tar.gz/zip 安装包、Windows `scripts/install.ps1`、GitHub Actions CI 与 fuzz。
+- **项目上下文**：`agentforge project-init` 可在当前项目生成 `AGENT.md` 项目上下文，供 Agent 与 Repo Mode 理解项目背景、构建/测试约定。
+- **会话导入 / 导出**：`export` / `import` 支持本地批量迁移与备份恢复。
+- **非交互与远程执行**：`--headless --prompt` 可不启动 TUI 直接调用 Provider/DSH 后端并打印结果，支持 `--format text|json|stream-json`（含流式 JSON Lines）；`exec` 子命令复用 `internal/executor` 支持本地、Docker 容器和 SSH 远程命令执行。
+- **发布与安装**：多平台 `make release`、`make package` 生成 CLI 安装包、Windows `scripts/install.ps1`、GitHub Actions CI 与 fuzz。
 
 UI 体验细节：
 
 - 已加载插件的 `Manifest.Commands` 会自动注册进命令面板（`/plugin:<插件名>:<命令>`，无冲突时也可用 `/<命令>`）
+- 空聊天欢迎页：新会话没有消息时显示欢迎/引导页，提示如何开始第一条消息或使用命令面板
+- 底部上下文快捷键栏：聊天区底部动态提示当前可用操作（如 `Enter 发送`、`Tab 切换焦点`、`? 帮助`），降低新手记忆负担
 - 启用鼠标支持：滚轮可滚动聊天 viewport，命令面板/列表面板中滚轮移动光标
-- 帮助：`?`（输入框为空时）或 `Ctrl+/` 打开帮助面板，`Esc` 关闭
+- 帮助：`?`（输入框为空时）或 `Ctrl+/` 打开帮助面板，`Esc` 关闭；帮助面板包含“全局快捷键”区块，并支持 `↑/↓` 或 `j/k` 滚动
+- 输入历史搜索：`Ctrl+R` 打开输入历史搜索，支持 `↑/↓` 选择、`Enter` 回填、`Esc` 关闭
+- 文件引用自动补全：输入 `@` 会触发当前工作区文件路径补全，选择后把 `@<路径>` 插入输入框，便于在消息中引用文件
+- 全局键位自定义：可通过 `<data-dir>/keybindings.json` 调整 help/palette/history 等全局键位；未配置项保持默认
+- 会话总览：`/agentview` 打开会话总览，展示当前会话、最近会话与运行中的多 Agent 任务
+- 时间回溯：空输入时双击 `Esc` 打开时间回溯，可选取用户消息取回编辑并重发
+- 常驻 HUD：界面常驻显示上下文 tokens、成本 cost 与生成速度 TPS
+- `/clear` 清空当前会话聊天内容，便于重新开始；`/status` 查看当前状态摘要
+- MCP 工具审批面板：MCP 工具需要确认时会弹出审批面板，支持 `a` 本次允许、`s` 总是允许、`d` 拒绝本次、`n` 拒绝并记住
+- 主题系统：`--theme` 支持 `default` / `catppuccin` / `dracula` / `tokyo-night` / `nord` / `solarized`
+- 会话自动命名：新会话会根据第一条用户消息自动生成标题；使用 `/rename` 手动设置的标题不会被后续自动命名/持久化覆盖
+- `/sessions` 会话面板支持按工作区分组，面板聚焦后可用 `↑/↓` 移动游标、`Enter` 切换到选中的会话、`n` 新建会话；并新增 `/resume` 作为 `/sessions` 的别名
+- Diff Review 面板支持 `A` 全部接受、`R` 全部拒绝
 - 面板默认不抢占输入；打开面板后按 `Tab` 在“输入框 / 面板”之间切换焦点，`Esc` 返回输入或关闭面板
 - 命令面板默认只展示基础命令，按 `Tab` 可切换为全部命令；支持 `↑/↓`、`Home/End`、`Ctrl+N`
+- 多 Agent 面板（`/agents`）支持 `↑/↓` 或 `j/k` 导航
 - 本地会话持久化节流为最多每 500ms 写一次，退出前强制落盘
 - 状态栏使用 `•` / `⚠` / `✖` 等符号前缀，不只依赖颜色
 - 窄屏（宽度 < 80）自动隐藏右侧 Overview 面板和分屏
@@ -133,20 +141,24 @@ UI 体验细节：
 |---|---|
 | `/context` | 打开/关闭 Context 用量面板 |
 | `/cost` | 打开/关闭成本估算面板 |
-| `/diff` | 打开/关闭 Diff Review 面板（真实 API 可解析 `git diff` 输出，`p` 生成 patch） |
+| `/diff` | 打开/关闭 Diff Review 面板（真实 API 可解析 `git diff` 输出；`A` 全部接受、`R` 全部拒绝，`p` 生成 patch） |
 | `/todos` | 打开/关闭 Todo / 任务计划面板 |
 | `/tools` | 打开/关闭工具调用记录面板 |
 | `/skills` | 打开/关闭 Skill 管理面板 |
 | `/plugin` | 打开/关闭插件列表面板 |
-| `/sessions` | 打开/关闭本地/远端会话列表；面板中按数字键切换会话 |
+| `/sessions` | 打开/关闭本地/远端会话列表（支持按工作区分组）；面板聚焦后可用 `↑/↓` 移动、`Enter` 切换、`n` 新建 |
+| `/resume` | `/sessions` 的别名，用于打开会话列表并恢复/切换会话 |
 | `/search <关键词>` | 过滤会话列表 |
 | `/find <关键词>` | 全文搜索历史消息 |
 | `/right` | 打开/关闭右侧常驻 Overview 面板 |
 | `/split` | 打开/关闭双会话并排视图 |
 | `/model [模型]` | 查看当前模型；Provider 直连时可切换模型 |
+| `/status` | 查看当前状态摘要 |
 | `/new` | 新建一个普通会话 |
+| `/clear` | 清空当前会话 |
+| `/compact` | 压缩当前会话旧消息为摘要，释放上下文空间 |
 | `/export` | 导出当前会话为 Markdown/JSON |
-| `/rename <标题>` | 重命名当前本地会话 |
+| `/rename <标题>` | 手动重命名当前本地会话；该标题不会被后续自动命名覆盖 |
 | `/delete` | 删除当前本地会话 |
 | `/skill-install <本地目录\|git URL>` | 从本地目录或 git 仓库安装/更新 Skill |
 | `/skill-sync <manifest-url>` | 从 JSON manifest 同步远端 Skill 仓库清单 |
@@ -172,14 +184,32 @@ UI 体验细节：
 | `/multi <提示词1,提示词2,...>` 或 `/multi [{"id":"a","prompt":"...","deps":["b"]}]` | 准备多 Agent 任务（JSON 形式支持依赖）并打开面板；用 `/multi-run` 执行 |
 | `/multi-run` | 执行 `/multi` 已准备的多 Agent 任务 |
 | `/agents` | 打开/关闭多 Agent 面板 |
+| `/agentview` | 打开会话总览（当前会话、最近会话、运行中的多 Agent 任务） |
 | `/help` | 显示可用命令 |
 | `/close` | 关闭当前 Channel |
 
+> MCP 工具需要确认时会弹出审批面板，支持 `a` 本次允许、`s` 总是允许、`d` 拒绝本次、`n` 拒绝并记住；`Esc` / `q` 可取消本次调用。
+
 如果已加载插件声明了 `commands`，命令面板和输入框还会额外支持这些插件命令，例如 `/plugin:demo:status` 或（无冲突时）`/status`。
 
-## 会话导入 / 导出 / 分享 / 同步
+## 插件市场 CLI
 
-不启动 TUI，直接用命令行批量迁移/备份/分享本地会话：
+```bash
+# 搜索插件市场中的插件
+agentforge market search <关键词>
+
+# 列出插件市场条目
+agentforge market list
+
+# 安装指定插件
+agentforge market install <插件名>
+```
+
+`agentforge market search/install/list` 可直接在命令行操作插件市场：搜索可用插件、查看市场列表，以及安装目标插件到本地插件目录。详细说明见 [docs/usage.md](docs/usage.md)。
+
+## 会话导入 / 导出
+
+不启动 TUI，直接用命令行批量迁移/备份本地会话：
 
 ```bash
 # 导出全部会话 JSON 到指定目录
@@ -187,30 +217,9 @@ agentforge export --out-dir /path/to/export
 
 # 从导出目录导入全部会话（已存在的 ID 会跳过，不覆盖）
 agentforge import --in-dir /path/to/export
-
-# 分享单个会话为加密链接（推荐；也支持 DSH_SHARE_KEY 环境变量）
-agentforge share --session <会话ID> --key <hex-or-base64>
-
-# 导入分享链接到本地
-agentforge open --url 'dsh-share://...' --key <hex-or-base64>
-
-# 在两个数据目录间按 UpdatedAt 双向同步，较新的覆盖较旧的
-agentforge sync --from /path/to/dir-a --to /path/to/dir-b
-
-# 推送全部本地会话到远程 HTTP/对象存储后端（可选 AES-GCM 加密）
-agentforge sync-remote --url https://host/sessions --push
-
-# 从远程拉取会话到本地（本地较新的会话会跳过）
-agentforge sync-remote --url https://host/sessions --pull --key <hex-or-base64>
-
-# 持续同步：未指定方向时每次先 pull 再 push，默认每 60s 执行一次
-agentforge sync-remote --url https://host/sessions --watch
-
-# 持续同步：每 5 分钟只推送
-agentforge sync-remote --url https://host/sessions --push --watch --interval 5m
 ```
 
-分享链接支持通过 `--key` / `--share-key` 或环境变量 `DSH_SHARE_KEY` 提供 AES-GCM 密钥；未提供密钥时生成明文链接（标记 `plain=true`）。远程同步支持通过 `--key` 或环境变量 `DSH_SYNC_KEY` 提供 AES-GCM 密钥；未提供密钥时按明文 HTTP 同步。`--watch` 模式会按 `--interval` 持续同步，适合多设备自动同步，收到 SIGINT（Ctrl+C）或 SIGTERM 后退出。详细说明见 [docs/usage.md](docs/usage.md)。
+详细说明见 [docs/usage.md](docs/usage.md)。
 
 ## 非交互与远程执行
 
@@ -219,6 +228,9 @@ agentforge sync-remote --url https://host/sessions --push --watch --interval 5m
 ```bash
 # Headless：直接向 Provider/DSH 后端发送 prompt 并打印最终结果
 agentforge --headless --provider deepseek --provider-key sk-xxx --prompt "hello"
+
+# Headless：流式 JSON Lines 输出（每行一条 JSON，便于脚本/CI 实时消费）
+agentforge --headless --provider deepseek --provider-key sk-xxx --prompt "hello" --format stream-json
 
 # 本地执行
 agentforge exec --local --cmd "echo hi"
@@ -231,9 +243,6 @@ agentforge exec --ssh --host user@host --cmd "echo hi"
 
 # 指定超时与工作目录
 agentforge exec --local --cmd "go test ./..." --workdir /path/to/project --timeout 5m
-
-# 企业身份执行：--user/--roles 放在 exec 之前，触发 RBAC 与 SIEM
-agentforge --user alice --roles member exec --local --cmd "echo hi"
 ```
 
 ### Agent 主流程 / 多 Agent
@@ -287,31 +296,6 @@ TUI 多 Agent 依赖图/子任务树：
 
 详细参数说明见 [docs/usage.md](docs/usage.md)。
 
-### 自动化调度
-
-`agentforge-automation` 从 JSON 加载 Job，按 Interval/Cron 触发 Headless 任务：
-
-```bash
-# 持续调度
-go run ./cmd/agentforge-automation --config jobs.json
-
-# 立即执行一次
-go run ./cmd/agentforge-automation --config jobs.json --once
-```
-
-示例 `jobs.json`：
-
-```json
-{
-  "jobs": [
-    {"id": "daily", "command": "agentforge --headless --mock --prompt \"生成日报\"", "cron": "0 9 * * *"},
-    {"id": "smoke", "command": "agentforge --headless --mock --prompt \"冒烟测试\"", "interval": "5s"}
-  ]
-}
-```
-
-调度器会注入 `DSH_AUTOMATION_JOB_ID`、`DSH_AUTOMATION_JOB_NAME` 和 `DSH_DATA_DIR` 环境变量。完整说明见 [docs/usage.md](docs/usage.md)。
-
 快捷键：
 
 | 按键 | 作用 |
@@ -319,7 +303,26 @@ go run ./cmd/agentforge-automation --config jobs.json --once
 | `Ctrl+C` | 第一次停止生成，第二次退出 |
 | `Ctrl+J` | 输入框内换行（多行输入） |
 | `Ctrl+E` | 用 `$EDITOR` 编辑当前输入 |
-| `Ctrl+P` | 打开命令面板 / 模糊搜索 |
+| `Ctrl+P` | 打开命令面板 / 模糊搜索（默认基础命令，`Tab` 切换全部） |
+| `Ctrl+R` | 搜索输入历史 |
+| `@` | 触发文件引用与路径自动补全 |
+| `/compact` | 压缩当前会话旧消息 |
+| `/agentview` | 打开会话总览 |
+| `/clear` | 清空当前会话 |
+| `/status` | 查看当前状态摘要 |
+| 空输入双击 `Esc` | 时间回溯 |
+| 常驻 HUD | 显示上下文 tokens / 成本 cost / TPS |
+| `?`（输入框为空时）或 `Ctrl+/` | 打开帮助面板 |
+| 帮助面板 `↑` / `↓` 或 `j` / `k` | 滚动帮助面板内容 |
+| 多 Agent 面板 `↑` / `↓` 或 `j` / `k` | 在多 Agent 任务/子任务列表中导航 |
+| 会话面板 `↑` / `↓` | 在会话列表中移动游标 |
+| 会话面板 `Enter` | 切换到当前选中的会话 |
+| 会话面板 `n` | 新建会话 |
+| MCP 审批面板 `a` | 本次允许当前 MCP 调用 |
+| MCP 审批面板 `s` | 总是允许该 MCP 工具（自动执行） |
+| MCP 审批面板 `d` | 拒绝本次 MCP 调用 |
+| MCP 审批面板 `n` | 拒绝并记住（禁止该 MCP 工具） |
+| MCP 审批面板 `Esc` / `q` | 取消当前 MCP 调用并关闭面板 |
 | 鼠标滚轮 | 滚动聊天消息；命令面板/列表面板中移动光标 |
 | `Ctrl+←` | 切换到上一个会话 Tab |
 | `Ctrl+→` | 切换到下一个会话 Tab |
@@ -328,31 +331,9 @@ go run ./cmd/agentforge-automation --config jobs.json --once
 | 双会话并排内 `s` | 切换到右侧会话并发送消息 |
 | Diff 面板内 `j` / `k` | 上/下移动 Diff 光标 |
 | Diff 面板内 `a` / `r` | 接受 / 拒绝当前 Diff |
+| Diff 面板内 `A` / `R` | 全部接受 / 全部拒绝所有 Diff |
 | Diff 面板内 `p` | 把已接受的 Diff 保存为 patch 文件 |
 | Diff 面板内 `g` | 两次 `g` 确认后执行 `git apply` 应用到工作区 |
-
-## 开放 API / Webhook
-
-`agentforge-api` 为 CI/外部程序提供轻量 REST 接口：
-
-```bash
-# Provider 直连模式
-go run ./cmd/agentforge-api --listen 127.0.0.1:8080 \
-  --provider deepseek --provider-key sk-xxx --model deepseek-chat \
-  --data-dir ~/.agentforge --api-token secret --webhook-url https://ci.example.com/hook
-
-# 使用内置 mock server 验证
-go run ./cmd/agentforge-api --mock --listen 127.0.0.1:8080
-```
-
-接口：
-
-- `GET /v1/healthz`：健康检查
-- `POST /v1/sessions`：创建会话
-- `GET /v1/sessions/{id}`：获取会话
-- `POST /v1/sessions/{id}/prompt`：发送 prompt 并返回最终结果
-
-启用 `--api-token` 后，`/v1/*` 请求需携带 `Authorization: Bearer <token>`。配置 `--webhook-url` 后，服务会异步发送 `session.created`、`session.prompt.completed`、`session.prompt.failed` 事件，请求头包含 `X-Webhook-Secret`。完整说明见 [docs/usage.md](docs/usage.md)。
 
 ## 开发
 
@@ -360,10 +341,10 @@ go run ./cmd/agentforge-api --mock --listen 127.0.0.1:8080
 # 使用内置 mock server 启动（无需真实 DSH）
 go run ./cmd/agentforge --mock
 
-# 连接真实 DSH Web API（推荐，当前已实测）
+# 推荐：连接真实 DSH Web API（HTTP + WebSocket，当前已实测）
 go run ./cmd/agentforge --api-url http://127.0.0.1:54695
 
-# 连接真实 DSH TUI Channel（协议已实现，服务端支持情况待确认）
+# 实验性/预留：DSH TUI Channel（tui.dsh/v1alpha1，非官方稳定协议；接入真实 DSH 请使用上方 DSH Web API）
 go run ./cmd/agentforge --endpoint ws://127.0.0.1:18891/agentforge/v1/connection
 
 # 恢复会话
@@ -372,11 +353,15 @@ go run ./cmd/agentforge --mock --resume session-xxx
 # 设置成本告警阈值（元）
 go run ./cmd/agentforge --mock --cost-limit 5
 
-# 使用 catppuccin 主题
+# 使用主题：default / catppuccin / dracula / tokyo-night / nord / solarized
 go run ./cmd/agentforge --mock --theme catppuccin
+# 例如：go run ./cmd/agentforge --mock --theme dracula
 
 # 使用英文界面（默认中文）
 go run ./cmd/agentforge --mock --lang en
+
+# 关闭颜色/ANSI 输出（适合不支持颜色的终端或管道日志）
+go run ./cmd/agentforge --mock --no-color
 
 # 启用本地遥测（默认关闭；仅写本地 telemetry.log，不联网）
 go run ./cmd/agentforge --mock --telemetry
@@ -541,7 +526,7 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Version 0.3.0 -Add
 agentforge doctor
 ```
 
-它会检查 Go、DSH CLI、Git、GitHub CLI、系统 Keychain 后端和数据目录权限，帮助你快速定位环境问题。
+它会检查 Go、DSH CLI、Git、GitHub CLI、系统 Keychain 后端、数据目录权限和终端兼容性，帮助你快速定位环境问题；发现问题时会输出 `Suggested fixes`，给出可直接执行的建议修复项。若终端不支持颜色或需要管道输出，可加 `--no-color` 关闭颜色。
 
 ## 发布构建
 

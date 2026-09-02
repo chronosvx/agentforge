@@ -4,6 +4,76 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased] - 调研驱动改进（最终批）
+
+### 新增
+
+- **TUI 输入框支持 `@` 文件引用与自动补全**：输入 `@` 可触发当前工作区文件路径补全，把文件引用插入消息。
+- **全局键位自定义**：支持通过 `<data-dir>/keybindings.json` 自定义 help/palette/history 等全局键位。
+- **上下文压缩命令**：新增 `/compact`，将当前会话旧消息压缩为摘要，释放长会话上下文空间。
+- **插件市场 CLI**：新增 `agentforge market search/install/list`，支持搜索、安装和列出插件市场条目。
+- **doctor 终端兼容性诊断**：`agentforge doctor` 新增终端兼容性诊断。
+- **无颜色配置**：新增 `--no-color`，可关闭颜色/ANSI 输出，便于不兼容终端与管道场景。
+
+## [Unreleased] - 调研驱动改进（第五批）
+
+### 新增
+
+- **TUI 清空当前会话**：新增 `/clear` 命令，用于清空当前会话的聊天内容。
+- **TUI 状态摘要**：新增 `/status` 命令，用于查看当前状态摘要。
+- **项目上下文初始化**：新增 `agentforge project-init` 命令，用于生成 `AGENT.md` 项目上下文。
+
+## [Unreleased] - 调研驱动改进（第四批）
+
+### 新增
+
+- **会话自动命名**：新会话会根据第一条用户消息自动生成标题；使用 `/rename` 手动设置的标题不会被后续持久化覆盖。
+- **会话列表按工作区分组**：`/sessions` 面板支持按工作区分组展示，便于在多工作区之间快速定位会话。
+- **Headless 流式 JSON Lines 输出**：`--headless --format stream-json` 可将流式结果以 JSON Lines 输出到 stdout，便于脚本和 CI 实时消费。
+
+## [Unreleased] - 调研驱动改进（第三批）
+
+### 新增
+
+- **MCP 工具审批面板**：MCP 工具需要确认时会弹出审批面板，支持 `a` 本次允许、`s` 总是允许、`d` 拒绝本次、`n` 拒绝并记住。
+- **主题系统扩展**：`--theme` 新增 `dracula` / `tokyo-night` / `nord` / `solarized`，连同已有 `default` / `catppuccin` 可一键切换。
+- **首次运行向导**：新增 `agentforge setup`，以向导方式选择 Mock / DSH Web API / Provider 直连后端并生成/更新本地配置。
+
+## [Unreleased] - 调研驱动改进（第二批）
+
+### 新增
+
+- **会话面板键盘导航**：`/sessions` 会话面板支持 `↑/↓` 移动游标、`Enter` 切换选中会话、`n` 新建会话，并新增 `/resume` 作为 `/sessions` 的别名。
+- **Diff Review 批量操作**：Diff 面板支持 `A` 全部接受、`R` 全部拒绝。
+- **doctor 建议修复**：`agentforge doctor` 在检查未通过时会输出 `Suggested fixes`，帮助用户快速修复环境问题。
+
+## [Unreleased] - 调研驱动改进
+
+### 新增
+
+- **会话列表 UX**：`/sessions` 面板优先显示会话标题与工作区，底部增加切换/过滤提示。
+- **doctor 增强**：`agentforge doctor` 新增 `DSH version` 与 `DSH Web API` 连通性检查，支持 `--api-url` / `--api-token`。
+- **Headless JSON 输出**：`--headless --format json` 可输出结构化结果，便于脚本和 CI。
+- **协议文档修正**：明确 `tui.dsh/v1alpha1 Channel` 为实验性/预留协议，推荐使用 DSH Web API 作为真实接入方式。
+
+## [Unreleased] - dsh-tui 风格交互增强
+
+### 新增
+
+- **输入历史搜索**：`Ctrl+R` 打开输入历史搜索，支持 `↑/↓` 选择、`Enter` 回填、`Esc` 关闭。
+- **会话总览**：`/agentview` 打开会话总览，展示当前会话、最近会话与运行中的多 Agent 任务。
+- **时间回溯**：空输入时双击 `Esc` 打开时间回溯，可选取用户消息取回编辑并重发。
+- **常驻 HUD**：界面常驻显示上下文 tokens、成本 cost 与生成速度 TPS。
+
+## [Unreleased] - TUI 新手友好调整
+
+### 新增
+
+- **空聊天欢迎页**：新会话没有消息时显示欢迎/引导页，提示如何开始第一条消息、使用命令面板或打开帮助。
+- **底部上下文快捷键栏**：聊天区底部根据当前焦点动态提示可用快捷键（如 `Enter 发送`、`Tab 切换焦点`、`? 帮助`），降低新手学习成本。
+- **帮助面板新增“全局快捷键”区块**：集中展示 `Ctrl+P`、`Ctrl+/`、`Tab`、`Esc`、`↑/↓` 等不依赖当前面板的全局快捷键；面板内支持 `↑/↓` 或 `j/k` 滚动。
+- **多 Agent 面板导航**：`/agents` 多 Agent 面板支持 `↑/↓` 或 `j/k` 在任务/子任务之间导航。
+
 ## [0.4.0] - 2026-09-01
 
 ### 新增

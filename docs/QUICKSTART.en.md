@@ -60,9 +60,6 @@ Open the project's GitHub page, find **Releases**, and download the package for 
 3. After extraction, you will see a folder containing **`agentforge.exe`**.
 4. Remember where this folder is; you will need it in the next step.
 
-> Screenshot placeholder: add a screenshot of the extracted `agentforge.exe` on Windows.
-> `![Windows download/extract screenshot](screenshots/quickstart-windows-download.png)`
-
 ### macOS
 
 1. Download **`agentforge-darwin-amd64.dmg`** or **`agentforge-darwin-arm64.dmg`**.
@@ -70,9 +67,6 @@ Open the project's GitHub page, find **Releases**, and download the package for 
 2. Double-click the `.dmg` file.
 3. Drag **`agentforge`** into the **Applications** folder (or any folder you remember).
 4. If macOS says it cannot open the app because it is from an unidentified developer, right-click the file → **Open**, then confirm.
-
-> Screenshot placeholder: add a screenshot of dragging the app from the DMG on macOS.
-> `![macOS install screenshot](screenshots/quickstart-macos-install.png)`
 
 ### Linux
 
@@ -93,9 +87,6 @@ Open the project's GitHub page, find **Releases**, and download the package for 
    > If you do not want to use `sudo`, you can put it in your own directory:
    > `mkdir -p ~/.local/bin && cp agentforge-linux-amd64/agentforge ~/.local/bin/`
 
-> Screenshot placeholder: add a screenshot of the Linux terminal running the install commands.
-> `![Linux install screenshot](screenshots/quickstart-linux-install.png)`
-
 ---
 
 ## Step 2: Start the Program
@@ -114,9 +105,6 @@ After starting it, you will see a text-based chat interface. Here is how to star
      .\agentforge.exe
      ```
 
-> Screenshot placeholder: add a screenshot of the chat interface in Windows PowerShell.
-> `![Windows run screenshot](screenshots/quickstart-windows-run.png)`
-
 ### macOS
 
 1. Press `Command + Space`, type "Terminal", and press Enter.
@@ -133,9 +121,6 @@ After starting it, you will see a text-based chat interface. Here is how to star
    ```
 
 3. Press Enter and the program will start.
-
-> Screenshot placeholder: add a screenshot of the chat interface in macOS Terminal.
-> `![macOS run screenshot](screenshots/quickstart-macos-run.png)`
 
 ### Linux
 
@@ -154,9 +139,6 @@ After starting it, you will see a text-based chat interface. Here is how to star
    ```
 
 3. Press Enter and the program will start.
-
-> Screenshot placeholder: add a screenshot of the chat interface in Linux terminal.
-> `![Linux run screenshot](screenshots/quickstart-linux-run.png)`
 
 After it starts, you should see something like this:
 
@@ -211,9 +193,6 @@ Use this if you already have DSH installed and running.
 
    > Note: `54695` is only an example. Use the actual port shown on your computer.
 
-> Screenshot placeholder: add a screenshot of chatting after connecting to DSH.
-> `![Connect to DSH screenshot](screenshots/quickstart-dsh.png)`
-
 ### Option B: Use a DeepSeek API Key Directly (No DSH Needed)
 
 Use this if you only want to use the DeepSeek official API without installing DSH.
@@ -238,9 +217,6 @@ Use this if you only want to use the DeepSeek official API without installing DS
 
 > Tip: The program uses DeepSeek's common model `deepseek-chat` by default, so you usually do not need to configure anything else.
 > To choose a model later, add `--model deepseek-chat` or `--model deepseek-reasoner`.
-
-> Screenshot placeholder: add a screenshot of chatting with a DeepSeek key.
-> `![DeepSeek direct connection screenshot](screenshots/quickstart-deepseek.png)`
 
 ### No Key / No DSH?
 

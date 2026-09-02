@@ -31,6 +31,7 @@ func runConfig(args []string) error {
 	fmt.Printf("keychain:          %v\n", cfg.Keychain)
 	fmt.Printf("encrypt-sessions:  %v\n", cfg.EncryptSessions)
 	fmt.Printf("telemetry:         %v\n", cfg.Telemetry)
+	fmt.Printf("no-color:          %v\n", cfg.NoColor)
 	fmt.Printf("provider-key:      %s\n", maskSecret(cfg.ProviderKey))
 	fmt.Printf("api-token:         %s\n", maskSecret(cfg.APIToken))
 	fmt.Printf("secret-key:        %s\n", maskSecret(cfg.SecretKey))

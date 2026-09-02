@@ -7,6 +7,40 @@ import (
 	"github.com/chronosvx/agentforge/internal/i18n"
 )
 
+// helpShortcutFallback 提供帮助面板快捷键文案的本地回退。
+// 正常情况下优先使用 i18n 语言包；这些 key 尚未加入语言包时，避免直接显示 key 名。
+var helpShortcutFallback = map[string][2]string{
+	"help.shortcuts_title": {"全局快捷键", "Global shortcuts"},
+	"help.key_send":        {"Enter 发送消息", "Enter send message"},
+	"help.key_newline":     {"Ctrl+J 在输入框换行", "Ctrl+J newline in input"},
+	"help.key_edit":        {"Ctrl+E 用编辑器编辑当前输入", "Ctrl+E edit current input in $EDITOR"},
+	"help.key_palette":     {"Ctrl+P 打开命令面板（支持模糊搜索）", "Ctrl+P open command palette (fuzzy search)"},
+	"help.key_help":        {"? 或 Ctrl+/ 打开/关闭帮助", "? or Ctrl+/ toggle help"},
+	"help.key_stop":        {"Ctrl+C 停止生成，再按一次退出", "Ctrl+C stop generation, press again to quit"},
+	"help.key_focus":       {"Tab 在输入框与面板之间切换焦点", "Tab toggle focus between input and panels"},
+	"help.key_back":        {"Esc 返回上一级 / 关闭面板", "Esc go back / close panel"},
+	"help.key_sessions":    {"Ctrl+←/→ 切换会话", "Ctrl+←/→ switch sessions"},
+	"help.key_scroll":      {"↑/↓、PgUp/PgDn、鼠标滚轮滚动消息", "↑/↓, PgUp/PgDn, mouse wheel to scroll"},
+	"help.key_history":     {"Ctrl+R 搜索输入历史", "Ctrl+R search input history"},
+	"help.key_agentview":   {"/agentview 打开会话总览", "/agentview open session overview"},
+	"help.key_rewind":      {"空输入双击 Esc 时间回溯", "Double-Esc on empty input to rewind"},
+}
+
+// helpText 读取帮助文案；缺失 key 时使用内置回退，避免把 key 名展示给用户。
+func helpText(key string) string {
+	if text := i18n.T(key); text != key {
+		return text
+	}
+	texts, ok := helpShortcutFallback[key]
+	if !ok {
+		return key
+	}
+	if i18n.CurrentLang() == i18n.LangEN {
+		return texts[1]
+	}
+	return texts[0]
+}
+
 func (m *Model) openHelp() {
 	m.helpOpen = true
 	m.helpCursor = 0
@@ -49,7 +83,25 @@ func (m *Model) handleHelpKey(key string) bool {
 // helpLines 生成帮助面板内容行。
 func (m *Model) helpLines() []string {
 	var lines []string
-	lines = append(lines, i18n.T("help.title"), "", i18n.T("help.basic_title"))
+	lines = append(lines, helpText("help.title"), "", helpText("help.shortcuts_title"))
+	for _, key := range []string{
+		"help.key_send",
+		"help.key_newline",
+		"help.key_edit",
+		"help.key_palette",
+		"help.key_help",
+		"help.key_stop",
+		"help.key_focus",
+		"help.key_back",
+		"help.key_sessions",
+		"help.key_scroll",
+		"help.key_history",
+		"help.key_agentview",
+		"help.key_rewind",
+	} {
+		lines = append(lines, helpText(key))
+	}
+	lines = append(lines, "", helpText("help.basic_title"))
 	appendCommandRows(&lines, basicCommandPaletteCommands, 4)
 	lines = append(lines, "", i18n.T("help.advanced_title"))
 	advanced := make([]string, 0, len(commandPaletteCommands))

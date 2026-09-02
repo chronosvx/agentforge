@@ -6,9 +6,11 @@
 
 ## 前置条件
 
-- Go 1.24+
-- 本机已安装 DSH CLI：`dsh`
-- 需要能启动 DSH Web 服务
+- Go 1.24+（从源码运行时）
+- 至少满足一种后端：
+  - 已安装 DSH CLI：`dsh`，可启动 DSH Web 服务；
+  - 有模型厂商 API Key（如 DeepSeek `sk-...`），用于 Provider 直连；
+  - 或先使用内置 Mock 模式体验。
 
 ## 快速开始
 
@@ -170,23 +172,23 @@ DSH_SECRET_KEY="$DSH_SECRET_KEY" agentforge --provider deepseek
 
 | 参数 | 说明 |
 |---|---|
-| `--api-url` | 真实 DSH Web API 地址 |
+| `--api-url` | 推荐的真实 DSH Web API 地址（HTTP + WebSocket） |
 | `--api-token` | DSH Web API 访问令牌；所有 HTTP/WebSocket 请求会附加 `Authorization: Bearer <token>` |
 | `--remote` | 启用远程模式；当远程地址非 loopback 且不是 `https`/`wss` 时打印安全警告 |
-| `--endpoint` | DSH tui channel WebSocket 地址（预留） |
+| `--endpoint` | 实验性 DSH Channel 地址（预留，`tui.dsh/v1alpha1`） |
 | `--workspace` | 工作区目录 |
 | `--resume` | 恢复指定会话 ID |
 | `--data-dir` | 本地数据目录，默认 `~/.agentforge` |
 | `--mock` | 使用内置 mock server |
 | `--cost-limit` | 成本告警阈值（元） |
-| `--theme` | 主题：`default` / `catppuccin` |
+| `--theme` | 主题：`default` / `catppuccin` / `dracula` / `tokyo-night` / `nord` / `solarized` |
 | `--lang` | 界面语言：`zh` / `en`，默认 `zh` |
 | `--telemetry` | 启用本地遥测，默认关闭；写入 `<data-dir>/telemetry.log`，不联网 |
 | `--no-audit` | 禁用审计日志（默认开启） |
-| `--user` | 模拟企业用户身份（可选），用于 Headless/CLI 场景；配合 `--roles` 可触发 RBAC 与 SIEM 用户标识 |
-| `--roles` | 模拟用户角色，逗号分隔（可选），例如 `admin,member`；配合 `--user` 使用 |
 | `--headless` | 非交互模式：不启动 TUI，发送 `--prompt` 后等待流式完成并打印结果 |
 | `--prompt <text>` | 与 `--headless` 搭配的提示词文本 |
+| `--format <text\|json\|stream-json>` | Headless 输出格式：默认 `text` 打印最终文本；`json` 输出结构化结果；`stream-json` 输出流式 JSON Lines |
+| `--no-color` | 关闭 ANSI 颜色输出；适合不支持颜色的终端、CI 日志或管道场景 |
 | `--version` | 打印版本并退出 |
 | `--provider` | 直连厂商名：`openai` / `deepseek` / `moonshot` / `kimi` / `zhipu` / `qwen` / `ollama` |
 | `--provider-key` | 直连厂商 API Key，多个用逗号分隔 |
@@ -195,9 +197,69 @@ DSH_SECRET_KEY="$DSH_SECRET_KEY" agentforge --provider deepseek
 | `--keychain` | 优先使用系统 Keychain/凭据管理器保存/读取 `--provider-key` |
 | `--secret-key` | 本地加密文件主密钥（hex/base64），为空时读取 `DSH_SECRET_KEY` |
 
+## 首次运行向导（setup）
+
+安装后可以先运行：
+
+```bash
+agentforge setup
+```
+
+该向导面向首次运行用户，会读取已有 `<data-dir>/config.json`，以问答方式选择后端（Mock / DSH Web API / Provider 直连）并生成或更新本地配置；本次未覆盖的已有字段会保留。也可用 `--data-dir` 指定数据目录。
+
+## 环境自检（doctor）
+
+安装后可以先运行：
+
+```bash
+agentforge doctor
+```
+
+它会检查 Go、DSH CLI、Git、GitHub CLI、系统 Keychain 后端、数据目录权限和终端兼容性，帮助你快速定位环境问题；发现问题时会输出 `Suggested fixes`，给出可直接执行的建议修复项。终端兼容性诊断会检查当前终端是否适合运行 TUI（例如颜色/ANSI 支持、宽字符与常见终端能力），当终端不支持颜色时建议配合 `--no-color` 使用。
+
+doctor 子命令常用参数：
+
+| 参数 | 说明 |
+|---|---|
+| `--data-dir <dir>` | 自定义数据目录（默认 `~/.agentforge`） |
+| `--api-url <url>` | 额外检查 DSH Web API 连通性 |
+| `--api-token <token>` | DSH Web API 访问令牌；可用 `--dsh-api-token` 作为别名 |
+
+## 项目上下文初始化（project-init）
+
+在项目仓库中为 Agent 生成 `AGENT.md` 项目上下文：
+
+```bash
+agentforge project-init
+```
+
+该命令会在当前项目目录生成 `AGENT.md`，用于记录项目背景、目录结构、构建/测试方式与代码约定等上下文，供后续 Repo Mode、Agent 任务和项目记忆读取，帮助 Agent 更快理解项目。
+
+## 插件市场 CLI（agentforge market）
+
+`agentforge market` 提供插件市场相关的命令行子命令：
+
+```bash
+# 搜索插件市场中的插件
+agentforge market search <关键词>
+
+# 列出插件市场条目
+agentforge market list
+
+# 安装指定插件
+agentforge market install <插件名>
+```
+
+说明：
+
+- `search`：按关键词在插件市场索引中搜索可用插件。
+- `list`：列出当前配置或默认市场索引中的全部插件。
+- `install`：按插件名从市场索引安装插件到本地插件目录（通常为 `<data-dir>/plugins/`）。
+- 签名校验、权限与沙箱策略仍沿用 `internal/plugin` 的既有插件治理能力。
+
 ## 非交互 Headless 模式
 
-`--headless` 让程序不启动 TUI，直接通过当前配置的 Provider/DSH 后端发送 prompt，等待流式完成后把最终结果打印到 stdout。适合脚本、CI 和管道调用。
+`--headless` 让程序不启动 TUI，直接通过当前配置的 Provider/DSH 后端发送 prompt，并把结果输出到 stdout。默认等待流式完成后打印最终文本；也可通过 `--format` 切换为结构化 JSON 或流式 JSON Lines。适合脚本、CI 和管道调用。
 
 ```bash
 # Provider 直连模式
@@ -211,13 +273,19 @@ agentforge --headless --mock --prompt "hello"
 
 # 指定模型
 agentforge --headless --provider deepseek --provider-key sk-xxx --model deepseek-chat --prompt "hello"
+
+# 结构化 JSON 输出
+agentforge --headless --provider deepseek --provider-key sk-xxx --prompt "hello" --format json
+
+# 流式 JSON Lines 输出（每行一条 JSON，便于实时消费）
+agentforge --headless --provider deepseek --provider-key sk-xxx --prompt "hello" --format stream-json
 ```
 
 说明：
 
-- `--headless` 与 `--prompt` 可放在其他参数之前或之后；`--prompt` 也支持 `--prompt=hello` 形式。
+- `--headless` 与 `--prompt` 可放在其他参数之前或之后；`--prompt` 也支持 `--prompt=hello` 形式；`--format` 同样支持 `--format=stream-json`。
+- `--format` 可选 `text`（默认）、`json`、`stream-json`。`stream-json` 会把流式增量/事件逐行输出为 JSON Lines，便于管道实时处理。
 - 非交互模式仍会执行与 TUI 相同的后端连接、密钥解析和审计初始化；可通过 `--no-audit` 关闭审计。
-- 可通过 `--user alice --roles admin,member` 模拟企业用户身份；该身份会写入 SIEM 事件。
 - 收到 `SIGINT` / `SIGTERM` 时会取消等待并退出。
 
 ## Agent 主流程 / 多 Agent
@@ -281,110 +349,6 @@ agentforge multiagent --tasks "run echo a,run echo b,run echo c" --yes
 
 `/agents` 打开/关闭多 Agent 面板，面板会展示子任务依赖树、状态与输出。
 
-## 开放 API / Webhook 服务
-
-`agentforge-api` 提供轻量 HTTP API，让外部程序、CI 或 SDK 可以创建会话、发送 prompt、查看结果，并通过 Webhook 接收异步事件通知。服务复用 `internal/session`、`internal/provider`、`internal/dshapi` 等后端能力，不修改 TUI 核心逻辑。
-
-```bash
-# Provider 直连模式
-go run ./cmd/agentforge-api --listen 127.0.0.1:8080 \
-  --provider deepseek --provider-key sk-xxx --model deepseek-chat \
-  --data-dir ~/.agentforge --api-token secret --webhook-url https://ci.example.com/hook
-
-# 连接真实 DSH Web API
-go run ./cmd/agentforge-api --listen 127.0.0.1:8080 \
-  --api-url http://127.0.0.1:54695 --dsh-api-token <dsh-token> \
-  --api-token secret --webhook-url https://ci.example.com/hook
-
-# 使用内置 mock server 验证
-go run ./cmd/agentforge-api --mock --listen 127.0.0.1:8080
-```
-
-### 启动参数
-
-| 参数 | 说明 |
-|---|---|
-| `--listen` | HTTP 监听地址，默认 `127.0.0.1:8080` |
-| `--data-dir` | 本地数据目录，默认 `~/.agentforge` |
-| `--api-token` | 开放 API 的 Bearer Token；为空时不启用鉴权 |
-| `--webhook-url` | Webhook 接收地址；为空时不发送通知 |
-| `--webhook-secret` | Webhook 签名 Secret，写入 `X-Webhook-Secret` |
-| `--provider` | 直连厂商名：`openai` / `deepseek` / `moonshot` / `kimi` / `zhipu` / `qwen` / `ollama` |
-| `--provider-key` | 直连厂商 API Key，多个用逗号分隔 |
-| `--provider-base-url` | 直连厂商 OpenAI 兼容 Base URL（可选） |
-| `--model` | 直连厂商模型名（可选） |
-| `--api-url` | 真实 DSH Web API 地址 |
-| `--dsh-api-token` | 上游 DSH Web API 访问令牌 |
-| `--endpoint` | DSH tui channel WebSocket 地址 |
-| `--mock` | 使用内置 mock server |
-| `--workspace` | 默认工作区目录 |
-
-### HTTP 接口
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| `GET` | `/v1/healthz` | 健康检查，无需鉴权 |
-| `POST` | `/v1/sessions` | 创建会话 |
-| `GET` | `/v1/sessions/{id}` | 获取会话详情 |
-| `POST` | `/v1/sessions/{id}/prompt` | 发送 prompt 并返回最终结果 |
-
-启用 `--api-token` 后，`/v1/*` 请求需要携带：
-
-```text
-Authorization: Bearer <api-token>
-```
-
-### 示例
-
-```bash
-# 创建会话
-curl -X POST http://127.0.0.1:8080/v1/sessions \
-  -H 'Authorization: Bearer secret' \
-  -H 'Content-Type: application/json' \
-  -d '{"workspace":"/path/to/project","title":"CI build"}'
-
-# 发送 prompt
-curl -X POST http://127.0.0.1:8080/v1/sessions/sess-xxxx/prompt \
-  -H 'Authorization: Bearer secret' \
-  -H 'Content-Type: application/json' \
-  -d '{"prompt":"请修复测试"}'
-
-# 查看会话
-curl http://127.0.0.1:8080/v1/sessions/sess-xxxx \
-  -H 'Authorization: Bearer secret'
-```
-
-### Webhook 事件
-
-配置 `--webhook-url` 后，服务会异步发送 JSON POST 请求：
-
-```text
-POST <webhook-url>
-Content-Type: application/json
-X-Webhook-Secret: <webhook-secret>
-```
-
-事件体：
-
-```json
-{
-  "event": "agent.approval.required",
-  "payload": {
-    "sessionId": "sess-xxxx",
-    "actionId": "action-0",
-    "phase": "AwaitingApproval"
-  },
-  "time": "2025-01-01T00:00:00Z"
-}
-```
-
-当前事件：
-
-- `session.created`：创建会话
-- `session.prompt.completed`：prompt 执行完成
-- `session.prompt.failed`：prompt 执行失败
-- `agent.approval.required`：Agent 进入人工审批等待，payload 为审批快照（至少包含 `sessionId` 与待审批动作信息）
-
 ## 本地 / 容器 / 远程执行（exec）
 
 `exec` 子命令复用 `internal/executor`，在不启动 TUI 的情况下直接执行命令，适合沙箱/远程执行场景。
@@ -404,9 +368,6 @@ agentforge exec --local --cmd "go test ./..." --workdir /path/to/project --env G
 
 # SSH 指定用户和端口
 agentforge exec --ssh --host example.com --user alice --port 2222 --cmd "uname -a"
-
-# 企业身份执行：--user/--roles 放在 exec 子命令之前，触发 RBAC 与 SIEM
-agentforge --user alice --roles member exec --local --cmd "echo hi"
 ```
 
 参数说明：
@@ -424,11 +385,9 @@ agentforge --user alice --roles member exec --local --cmd "echo hi"
 | `--workdir` | 工作目录；Docker 模式会挂载到容器 `/work` 并作为工作目录 |
 | `--env` | 环境变量 `KEY=VALUE`，可重复传入 |
 | `--timeout` | 执行超时，例如 `5s`、`1m`；不设置表示不超时 |
-| `--data-dir` | 本地数据目录，默认 `~/.agentforge`；用于写入 SIEM 事件 |
+| `--data-dir` | 本地数据目录，默认 `~/.agentforge` |
 
 本地执行器不调用 shell，因此 `--cmd "echo hi"` 会被拆分为 `echo hi` 后直接执行；如需管道、重定向等 shell 特性，请显式调用 `sh -c`（例如 `--cmd "sh -c 'echo hi | cat'"`）。
-
-企业身份与 RBAC：`exec` 子命令本身保留 `--user` 作为 SSH 用户名；若要模拟企业用户身份，请把 `--user <企业用户>` 与 `--roles <角色列表>` 放在 `exec` 之前。指定了角色时会使用 `DefaultPolicy` 校验 `exec.run` 权限（admin/member 允许，auditor/guest 拒绝），并在 `<data-dir>/siem.log` 写入 `exec.run` 事件。
 
 ### TUI 内的 `/exec` 执行面板
 
@@ -448,9 +407,9 @@ agentforge --user alice --roles member exec --local --cmd "echo hi"
 - 执行通过异步 `tea.Cmd` 完成，不会阻塞 TUI；结果会渲染在面板中，同时状态栏给出摘要。
 - 在面板中按 `Esc` 可关闭面板。
 
-## 会话导入 / 导出 / 同步
+## 本地会话导出 / 导入
 
-以下子命令不会启动 TUI，而是直接读写本地会话 JSON，适合多设备迁移与备份。
+以下子命令不会启动 TUI，而是直接读写本地会话 JSON，适合备份、迁移与手动归档。
 
 ### 导出全部会话
 
@@ -471,108 +430,6 @@ agentforge import --data-dir ~/.agentforge --in-dir /path/to/export
 ```
 
 从 `--in-dir` 读取 JSON 文件并写入 `<data-dir>/sessions/`。如果某个会话 ID 已存在，会跳过该文件、不覆盖本地数据；每个文件的处理结果都会打印。
-
-### 分享单个会话链接
-
-```bash
-# 加密分享（推荐）
-agentforge share --session <会话ID> --key <hex-or-base64>
-
-# 使用环境变量提供分享密钥
-DSH_SHARE_KEY=<hex-or-base64> agentforge share --session <会话ID>
-
-# 不提供密钥时生成明文链接（plain=true，仅适合非敏感会话）
-agentforge share --session <会话ID>
-```
-
-`share` 会读取 `<data-dir>/sessions/<会话ID>.json`，序列化后打包成 `dsh-share://<payload>` 链接：
-
-- 提供 `--key` / `--share-key` 或设置 `DSH_SHARE_KEY` 时，使用 AES-GCM 加密，密钥为 hex 或 base64 编码的 16/24/32 字节值；
-- 未提供密钥时生成明文 base64 链接，并在载荷中标记 `plain=true`。
-
-### 导入分享链接
-
-```bash
-# 导入加密分享链接
-agentforge open --url 'dsh-share://...' --key <hex-or-base64>
-
-# 使用环境变量提供分享密钥
-DSH_SHARE_KEY=<hex-or-base64> agentforge open --url 'dsh-share://...'
-
-# 明文分享链接无需密钥
-agentforge open --url 'dsh-share://...'
-
-# 指定数据目录
-agentforge open --url 'dsh-share://...' --data-dir ~/.agentforge
-```
-
-`open` 会解析并解密分享链接，然后写入 `<data-dir>/sessions/`。如果本地已存在相同会话 ID，会跳过且不覆盖本地数据。
-
-分享参数说明：
-
-| 参数 | 说明 |
-|---|---|
-| `--session` | 要分享的本地会话 ID（仅 `share`） |
-| `--url` | 分享链接，形如 `dsh-share://...`（仅 `open`） |
-| `--key` | AES-GCM 分享密钥，hex 或 base64 编码的 16/24/32 字节值；不传时读取环境变量 `DSH_SHARE_KEY`；也可用 `--share-key` 作为别名 |
-| `--data-dir` | 本地数据目录，默认 `~/.agentforge` |
-| `--no-audit` | 禁用审计日志（默认开启） |
-
-### 同步两个数据目录
-
-```bash
-agentforge sync --from /path/to/dir-a --to /path/to/dir-b
-```
-
-按 `UpdatedAt` 做双向同步：
-
-- 只存在于 `--from` 的会话复制到 `--to`；
-- 只存在于 `--to` 的会话复制到 `--from`；
-- 两侧都存在时，较新的覆盖较旧的。
-
-命令会打印每个被同步会话的 ID 和操作方向（`src->dst` 或 `dst->src`）。
-
-以上目录参数既可以是包含 `sessions/` 子目录的数据目录，也可以是直接指向 `sessions/` 的目录。
-
-### 同步远程 HTTP/对象存储后端
-
-```bash
-# 推送全部本地会话到远程
-agentforge sync-remote --url https://host/sessions --push
-
-# 从远程拉取会话到本地
-agentforge sync-remote --url https://host/sessions --pull
-
-# 指定数据目录
-agentforge sync-remote --url https://host/sessions --data-dir ~/.agentforge --pull
-
-# 持续同步：未指定方向时每次先 pull 再 push，默认每 60s 执行一次
-agentforge sync-remote --url https://host/sessions --watch
-
-# 持续同步：每 5 分钟只推送
-agentforge sync-remote --url https://host/sessions --push --watch --interval 5m
-
-# 持续同步：每 30 秒只拉取
-agentforge sync-remote --url https://host/sessions --pull --watch --interval 30s
-```
-
-参数说明：
-
-| 参数 | 说明 |
-|---|---|
-| `--url` | 远程存储 base URL，形如 `https://host/sessions`；Put/Get 使用 `{url}/{id}`，List 使用 `{url}?list=1` 并期望返回 JSON 字符串数组 |
-| `--data-dir` | 本地数据目录，默认 `~/.agentforge` |
-| `--key` | AES-GCM 同步密钥，hex 或 base64 编码的 16/24/32 字节值；不传时读取环境变量 `DSH_SYNC_KEY` |
-| `--push` | 上传所有本地会话到远程 |
-| `--pull` | 下载远程会话到本地；已存在且本地 `UpdatedAt` 比远程更新的会话会跳过 |
-| `--watch` | 持续同步模式；循环执行同步直到收到 SIGINT（Ctrl+C）或 SIGTERM 退出 |
-| `--interval` | `--watch` 模式下的同步间隔，默认 `60s`；支持 `30s`、`5m`、`1h` 等 Go duration 格式 |
-
-加密是可选的：提供 `--key` 或设置 `DSH_SYNC_KEY` 后，上传前会用 AES-GCM 加密，下载后自动解密；未提供密钥时使用明文 HTTP 同步。远程 HTTP 服务需要实现：
-
-- `PUT {url}/{id}`：保存会话原始字节；
-- `GET {url}/{id}`：读取会话原始字节；
-- `GET {url}?list=1`：返回 `["id1","id2",...]` 这样的 JSON 数组。
 
 ## 本地安全能力
 
@@ -656,79 +513,8 @@ TUI 在以下关键操作发生时写入审计事件（通过 `--no-audit` 可�
 | `session.export` | 导出当前会话（`/export`） |
 | `session.delete` | 删除当前会话（`/delete`） |
 | `diff.apply` | 执行 `git apply` |
-| `session.share` | CLI `share` 子命令成功生成分享链接 |
-| `session.import` | CLI `open` 子命令成功导入分享链接 |
 
-审计字段会尽量只包含 `sessionId`、`channelId`、导出路径、应用文件等非敏感信息；所有字段写入前仍会经过 `RedactMap` 脱敏。CLI `share` / `open` 子命令也支持 `--no-audit` 关闭本次审计。
-
-### SIEM 事件
-
-企业版会在 `<data-dir>/siem.log` 写入 JSON Lines 格式的 SIEM 事件，便于对接集中式安全分析平台：
-
-```json
-{"time":"...","user":"alice","action":"app.start","resource":"agentforge","result":"ok"}
-```
-
-当前 CLI 已接入以下事件：
-
-| 事件 | 触发操作 |
-|---|---|
-| `app.start` | 程序启动（Headless/交互模式） |
-| `exec.run` | `exec` 子命令执行完成或 RBAC 拒绝 |
-| `headless.complete` | Headless 任务完成（成功/失败） |
-
-`--user` / `--roles` 提供模拟用户身份，会作为 `user` 字段写入 SIEM；未指定时 `user` 为空字符串。
-
-## 自动化调度（agentforge-automation）
-
-`cmd/agentforge-automation` 从 JSON 配置加载 Job，并按 Interval/Cron 调度执行命令。命令通常是 `agentforge --headless --prompt ...`，也可以是任意 shell 命令。
-
-```bash
-# 按配置持续调度
-go run ./cmd/agentforge-automation --config jobs.json
-
-# 只立即执行一次所有启用的 Job
-go run ./cmd/agentforge-automation --config jobs.json --once
-
-# 只打印将执行的命令，不真正执行
-go run ./cmd/agentforge-automation --config jobs.json --dry-run
-```
-
-`jobs.json` 示例：
-
-```json
-{
-  "jobs": [
-    {
-      "id": "daily-report",
-      "name": "每日报告",
-      "command": "agentforge --headless --mock --prompt \"生成今日项目报告\"",
-      "cron": "0 9 * * *",
-      "enabled": true
-    },
-    {
-      "id": "ci-smoke",
-      "name": "CI 冒烟",
-      "command": "agentforge --headless --mock --prompt \"运行冒烟测试\"",
-      "interval": "5s",
-      "enabled": true
-    }
-  ]
-}
-```
-
-字段说明：
-
-| 字段 | 说明 |
-|---|---|
-| `id` | 任务 ID（必填） |
-| `name` | 任务名称（可选，默认取 `id`） |
-| `command` | 要执行的 shell 命令（必填） |
-| `cron` | 5 段 cron 表达式，例如 `0 9 * * *`（与 `interval` 二选一） |
-| `interval` | Go duration 字符串，例如 `5s`、`1h`（与 `cron` 二选一） |
-| `enabled` | 是否启用，默认 `true` |
-
-调度器会向子进程注入 `DSH_AUTOMATION_JOB_ID`、`DSH_AUTOMATION_JOB_NAME` 与 `DSH_DATA_DIR` 环境变量，供命令或审计使用。
+审计字段会尽量只包含 `sessionId`、`channelId`、导出路径、应用文件等非敏感信息；所有字段写入前仍会经过 `RedactMap` 脱敏。
 
 ## 可选遥测与自动更新检查
 
@@ -769,20 +555,24 @@ DSH_TELEMETRY=1 agentforge
 |---|---|
 | `/context` | Context 用量面板 |
 | `/cost` | 成本面板 |
-| `/diff` | Diff Review 面板 |
+| `/diff` | Diff Review 面板（`A` 全部接受、`R` 全部拒绝） |
 | `/todos` | Todo / 任务计划面板 |
 | `/tools` | 工具调用记录面板 |
 | `/skills` | Skill 管理面板（本地 + 远端 available_skills） |
 | `/plugin` | 插件列表面板 |
-| `/sessions` | 本地/远端会话列表 |
+| `/sessions` | 本地/远端会话列表（支持按工作区分组）；面板聚焦后可用 `↑/↓` 移动、`Enter` 切换、`n` 新建 |
+| `/resume` | `/sessions` 的别名，用于打开会话列表并恢复/切换会话 |
 | `/search <关键词>` | 过滤会话列表 |
 | `/find <关键词>` | 全文搜索历史消息 |
 | `/right` | 右侧 Overview 面板 |
 | `/split` | 双会话并排视图 |
 | `/model [模型]` | 查看当前模型；Provider 直连时可切换模型 |
+| `/status` | 查看当前状态摘要 |
 | `/new` | 新建普通会话 |
+| `/clear` | 清空当前会话 |
+| `/compact` | 压缩当前会话旧消息为摘要，释放上下文空间 |
 | `/export` | 导出当前会话为 Markdown/JSON |
-| `/rename <标题>` | 重命名当前本地会话 |
+| `/rename <标题>` | 手动重命名当前本地会话；该标题不会被后续自动命名覆盖 |
 | `/delete` | 删除当前本地会话 |
 | `/skill-install <本地目录\|git URL>` | 从本地目录或 git 仓库安装/更新 Skill |
 | `/skill-sync <manifest-url>` | 从 JSON manifest 同步远端 Skill 仓库清单 |
@@ -793,7 +583,7 @@ DSH_TELEMETRY=1 agentforge
 | `/rewind <ID\|名称>` | 回滚到指定 Checkpoint 或时间线快照 |
 | `/timeline` | 查看 Checkpoint 时间线 |
 | `/fork <标签>` | 从当前会话分叉一个新的时间线分支 |
-| `/mcp <url>` | 连接 MCP Server 并列出工具 |
+| `/mcp <url>` | 作为 MCP Client 连接 MCP 服务端并列出工具 |
 | `/mcp-call <工具> <json>` | 调用 MCP 工具 |
 | `/mcp-approve` | 批准当前挂起的 MCP 调用 |
 | `/mcp-cancel` | 取消当前挂起的 MCP 调用 |
@@ -808,8 +598,36 @@ DSH_TELEMETRY=1 agentforge
 | `/multi <提示词1,提示词2,...>` 或 `/multi [{"id":"a","prompt":"...","deps":["b"]}]` | 准备多 Agent 任务（JSON 形式支持依赖）并打开面板；用 `/multi-run` 执行 |
 | `/multi-run` | 执行 `/multi` 已准备的多 Agent 任务 |
 | `/agents` | 打开/关闭多 Agent 面板 |
+| `/agentview` | 打开会话总览（当前会话、最近会话、运行中的多 Agent 任务） |
 | `/help` | 打开帮助面板（也可在输入框为空时按 `?`，或按 `Ctrl+/`） |
 | `/close` | 关闭当前 Channel |
+
+### 会话管理
+
+- 新会话会根据第一条用户消息自动生成标题；使用 `/rename` 手动改名后，该标题不会被后续自动命名或持久化覆盖。
+- `/sessions` 面板会按工作区分组展示会话，便于在多工作区之间快速定位。
+- `/clear` 清空当前会话的聊天内容，便于在当前会话中重新开始。
+- `/status` 查看当前状态摘要。
+
+### 上下文管理
+
+- 当会话上下文接近窗口限制时，可使用 `/compact` 将除最后一条外的旧消息压缩为一条 system 摘要，降低 token 占用并继续对话。
+- 压缩后旧消息不再逐条保留；若需要保留更完整的历史，可结合 `/checkpoint`、`/timeline`、`/rewind` 进行时间线保存与回滚。
+- `/context` 可查看当前 Context 用量，便于判断是否值得执行 `/compact`。
+
+### MCP 工具审批面板
+
+当 `/mcp-call` 调用一个策略为“每次确认”（`/mcp-confirm`）的 MCP 工具时，会进入审批面板等待决定：
+
+| 按键 | 作用 |
+|---|---|
+| `a` | 本次允许：只放行这一次调用 |
+| `s` | 总是允许：将该工具设为自动执行（等价于 `/mcp-auto <工具>`） |
+| `d` | 拒绝本次：拒绝这一次调用 |
+| `n` | 拒绝并记住：将该工具设为禁止（等价于 `/mcp-deny <工具>`） |
+| `Esc` / `q` | 取消本次调用并关闭面板 |
+
+也可继续使用 `/mcp-approve`、`/mcp-cancel`、`/mcp-auto <工具>`、`/mcp-confirm <工具>`、`/mcp-deny <工具>` 管理 MCP 工具策略。
 
 ### 插件命令
 
@@ -820,70 +638,32 @@ DSH_TELEMETRY=1 agentforge
 
 插件命令通过 `plugin.Manager.RunCommand` 异步执行，结果会显示在状态栏。
 
-### 插件市场签名发布
-
-插件作者可以使用 `scripts/publish-plugin.sh`（或 `cmd/agentforge-plugin-publish`）为插件包计算 SHA-256、使用 ECDSA P-256 私钥签名，并把条目写入市场索引 JSON。
-
-先生成 ECDSA P-256 私钥（同时导出公钥用于信任库）：
-
-```bash
-openssl ecparam -name prime256v1 -genkey -noout -out publisher-key.pem
-openssl ec -in publisher-key.pem -pubout -out publisher-pub.pem
-```
-
-发布插件到本地市场索引：
-
-```bash
-./scripts/publish-plugin.sh \
-  my-plugin \
-  1.0.0 \
-  https://example.com/my-plugin.zip \
-  ./publisher-key.pem \
-  ./market.json \
-  "我的插件"
-```
-
-等价地，也可以直接调用 Go 命令：
-
-```bash
-go run ./cmd/agentforge-plugin-publish \
-  my-plugin 1.0.0 https://example.com/my-plugin.zip \
-  ./publisher-key.pem ./market.json "我的插件"
-```
-
-或通过 Makefile：
-
-```bash
-make publish-plugin \
-  NAME=my-plugin \
-  VERSION=1.0.0 \
-  URL=https://example.com/my-plugin.zip \
-  KEY=./publisher-key.pem \
-  INDEX=./market.json
-```
-
-说明：
-
-- 包 URL 支持 `http(s)://`、`file://` 和本地文件路径；发布前会计算包本身的 SHA-256。
-- 签名对象中的 `publicKeyID` 由公钥 DER 的 SHA-256 指纹自动生成（格式为 `sha256:<hex>`）。
-- 市场索引支持顶层数组或 `{"plugins":[...]}` 两种格式；`AppendToIndex` 按插件名去重，同名条目会被更新。
-- 消费者启用签名校验时，需要把 `publisher-pub.pem` 以 `publicKeyID` 为 ID 加入 `TrustStore`：
-
-```go
-ts := plugin.NewTrustStore()
-ts.AddPublicKey(entry.Signature.PublicKeyID, publisherPublicKeyPEM)
-plugin.InstallFromMarket(ctx, index, "my-plugin", destDir, ts)
-```
+需要从命令行搜索、列出或安装插件市场条目时，可使用 `agentforge market search/list/install`，详见“插件市场 CLI（agentforge market）”章节。
 
 ### UI 交互与性能
 
 - 启动时启用 Bubble Tea 鼠标支持（`tea.WithMouseCellMotion`）。
+- 空聊天欢迎页：新会话还没有消息时，聊天区会显示欢迎/引导页，提示如何开始第一条消息、使用命令面板或打开帮助，降低新手启动成本。
+- 底部上下文快捷键栏（原状态栏精简）：聊天区底部状态栏不再列出大量斜杠命令，而是根据当前输入框/面板焦点动态提示可用操作（例如 `Enter 发送`、`Tab 切换焦点`、`? 帮助`），让新手不需要先背快捷键。
 - 鼠标滚轮可以滚动聊天消息 viewport；命令面板、Diff/Search/Plugins/Skills 等列表面板中滚轮会移动光标。
-- 帮助面板：输入框为空时按 `?`，或按 `Ctrl+/` 打开；按 `Esc` 关闭。`/help` 现在会打开该帮助面板，而不再只是显示状态栏提示。
+- 帮助面板：输入框为空时按 `?`，或按 `Ctrl+/` 打开；按 `Esc` 关闭。`/help` 现在会打开该帮助面板，而不再只是显示状态栏提示。帮助面板新增“全局快捷键”区块，集中展示 `Ctrl+P`、`Ctrl+/`、`Tab`、`Esc`、`↑/↓` 等不依赖当前面板的全局快捷键；面板内支持 `↑/↓` 或 `j/k` 滚动。
+- 输入历史搜索：`Ctrl+R` 打开输入历史搜索，支持 `↑/↓` 选择、`Enter` 回填、`Esc` 关闭。
+- 文件引用自动补全：输入 `@` 会触发当前工作区文件路径补全，选择后把 `@<路径>` 插入输入框，便于在消息中引用文件。
+- 全局键位自定义：可通过 `<data-dir>/keybindings.json` 自定义 help/palette/history 等全局键位；文件使用 JSON 对象，键名对应功能（如 `help`、`palette`、`history`），值为 Bubble Tea 风格按键（如 `ctrl+p`、`ctrl+r`、`ctrl+/`）。未配置项保持默认。
+- 会话总览：`/agentview` 打开会话总览，展示当前会话、最近会话与运行中的多 Agent 任务。
+- 时间回溯：空输入时双击 `Esc` 打开时间回溯，可选取用户消息取回编辑并重发。
+- 常驻 HUD：界面常驻显示上下文 tokens、成本 cost 与生成速度 TPS。
+- `/clear` 清空当前会话聊天内容，便于快速开始新一轮对话。
+- `/status` 查看当前状态摘要。
+- 会话自动命名：新会话会根据第一条用户消息自动生成标题；使用 `/rename` 手动设置的标题不会被后续自动命名或持久化覆盖。
+- `/sessions` 会话面板：支持按工作区分组；面板聚焦后可用 `↑/↓` 移动游标、`Enter` 切换到选中的会话、`n` 直接新建会话；`/resume` 是 `/sessions` 的别名，便于快速进入恢复/切换会话流程。
+- Diff Review 面板支持 `A` 全部接受、`R` 全部拒绝，适合一次性处理整批 Diff。
+- MCP 工具审批面板：当 MCP 工具需要确认时，审批面板支持 `a` 本次允许、`s` 总是允许、`d` 拒绝本次、`n` 拒绝并记住。
+- 主题系统：支持 `default` / `catppuccin` / `dracula` / `tokyo-night` / `nord` / `solarized`，可通过 `--theme` 选择。
 - 面板默认非模态：打开面板不会抢占输入焦点。按 `Tab` 可在“输入框 / 面板”之间切换焦点；`Esc` 先返回输入框焦点，再关闭面板。
 - 命令面板（`Ctrl+P`）默认只展示基础命令以降低学习成本；在面板中按 `Tab` 可切换“基础命令 / 全部命令”。支持 `↑/↓`、`Home/End`、`Ctrl+N` 导航。
-- 状态栏已精简：不再列出大量斜杠命令，改为紧凑帮助提示 `? / Ctrl+/ help`。
-- 输入框占位提示现在会提到 `Ctrl+P`（命令）和 `Ctrl+/`（帮助）。
+- 多 Agent 面板（`/agents`）也支持 `↑/↓` 或 `j/k` 导航：面板聚焦后可用方向键或 `j/k` 在任务/子任务之间移动。
+- 输入框占位提示现在会提到 `Ctrl+P`（命令）、`Ctrl+R`（历史）和 `Ctrl+/`（帮助）。
 - 本地会话持久化采用节流策略：状态变化后最多每 500ms 写盘一次，退出程序前会强制把未落盘数据写入 `<data-dir>/sessions/`。
 - 状态栏使用 `•` / `⚠` / `✖` 符号前缀区分普通/告警/错误，避免只依赖颜色传达状态。
 - 终端宽度小于 80 列时，自动隐藏右侧 Overview 面板和双会话分屏，优先保证主聊天区可读。
@@ -921,10 +701,28 @@ manifest URL 可以是 HTTP(S) 地址，也可以是本地文件路径。执行�
 | `Ctrl+J` | 输入框内换行（多行输入） |
 | `Ctrl+E` | 用 `$EDITOR` 编辑当前输入 |
 | `Ctrl+P` | 打开命令面板 / 模糊搜索（默认只显示基础命令；`Tab` 切换基础/全部） |
+| `Ctrl+R` | 搜索输入历史 |
+| `@` | 触发文件引用与路径自动补全 |
+| `/compact` | 压缩当前会话旧消息 |
+| `/agentview` | 打开会话总览 |
+| `/clear` | 清空当前会话 |
+| `/status` | 查看当前状态摘要 |
+| 空输入双击 `Esc` | 时间回溯 |
+| 常驻 HUD | 显示上下文 tokens / 成本 cost / TPS |
 | `?`（输入框为空时）或 `Ctrl+/` | 打开帮助面板 |
 | `Esc` | 关闭帮助/面板；先返回输入框焦点 |
 | `Tab` | 在输入框与当前面板之间切换焦点 |
 | `↑` / `↓`、`Home` / `End`、`Ctrl+N` | 在命令面板中导航 |
+| 帮助面板 `↑` / `↓` 或 `j` / `k` | 滚动帮助面板内容 |
+| 多 Agent 面板 `↑` / `↓` 或 `j` / `k` | 在多 Agent 任务/子任务列表中导航 |
+| 会话面板 `↑` / `↓` | 在会话列表中移动游标 |
+| 会话面板 `Enter` | 切换到当前选中的会话 |
+| 会话面板 `n` | 新建会话 |
+| MCP 审批面板 `a` | 本次允许当前 MCP 调用 |
+| MCP 审批面板 `s` | 总是允许该 MCP 工具（自动执行） |
+| MCP 审批面板 `d` | 拒绝本次 MCP 调用 |
+| MCP 审批面板 `n` | 拒绝并记住（禁止该 MCP 工具） |
+| MCP 审批面板 `Esc` / `q` | 取消当前 MCP 调用并关闭面板 |
 | 鼠标滚轮 | 滚动聊天消息；命令面板/列表面板中移动光标 |
 | `Ctrl+←` / `Ctrl+→` | 切换会话 Tab |
 | 右侧面板 `1`~`5` | 打开 Context / Cost / Diff / Todos / Skills |
@@ -932,6 +730,7 @@ manifest URL 可以是 HTTP(S) 地址，也可以是本地文件路径。执行�
 | 双会话并排 `s` | 跳到右侧会话 |
 | Diff 面板 `j` / `k` | 移动 |
 | Diff 面板 `a` / `r` | 接受 / 拒绝 |
+| Diff 面板 `A` / `R` | 全部接受 / 全部拒绝 |
 | Diff 面板 `p` | 生成 patch |
 | Diff 面板 `g` | 进入/确认 `git apply` |
 | Diff 面板 `b` | 回滚最近一次 apply |
@@ -1015,14 +814,15 @@ make install
 
 ```text
 ~/.agentforge/
-├── sessions/     # 本地会话：默认 <id>.json；启用加密存储后为 <id>.json.enc
-├── skills/       # 本地 Skill markdown（*.md）
-├── patches/      # 生成的 patch 文件
-├── backups/      # git apply 前备份
-├── secrets.json  # 本地加密 API Key（AES-GCM，0600；仅在启用 --secret-key/DSH_SECRET_KEY 时生成）
-├── audit.log     # 审计日志（JSON Lines，自动脱敏）
-├── siem.log      # SIEM 事件日志（JSON Lines，企业安全事件）
-└── telemetry.log # 可选遥测日志（JSON Lines，自动脱敏；默认不生成）
+├── sessions/       # 本地会话：默认 <id>.json；启用加密存储后为 <id>.json.enc
+├── skills/         # 本地 Skill markdown（*.md）
+├── plugins/        # 本地插件
+├── patches/        # 生成的 patch 文件
+├── backups/        # git apply 前备份
+├── keybindings.json # 自定义全局键位（可选；help/palette/history 等）
+├── secrets.json    # 本地加密 API Key（AES-GCM，0600；仅在启用 --secret-key/DSH_SECRET_KEY 时生成）
+├── audit.log       # 审计日志（JSON Lines，自动脱敏）
+└── telemetry.log   # 可选遥测日志（JSON Lines，自动脱敏；默认不生成）
 ```
 
 ## 注意事项
@@ -1030,4 +830,4 @@ make install
 - `git apply` 前会先 `git apply --check`，失败不会改动文件
 - 应用前会自动备份涉及文件，可用 `b` 回滚
 - Skill 启用/禁用状态为当前进程内切换；本地 Skill 默认启用，可用 frontmatter `enabled: false` 设置初始状态
-- 当前真实 DSH 走 Web API；`tui.dsh/v1alpha1` Channel 客户端已实现但需服务端支持
+- 当前真实 DSH 走 Web API（`internal/dshapi`，HTTP + WebSocket）；`tui.dsh/v1alpha1` Channel 为实验性/预留协议，非官方稳定接入方式。

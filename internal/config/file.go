@@ -119,6 +119,9 @@ func applyConfig(cfg *Config, kv map[string]string, setFlags map[string]bool) {
 	if !set("no-audit") && kv["no-audit"] != "" {
 		cfg.NoAudit, _ = strconv.ParseBool(kv["no-audit"])
 	}
+	if !set("no-color") && kv["no-color"] != "" {
+		cfg.NoColor, _ = strconv.ParseBool(kv["no-color"])
+	}
 	if !set("user") && kv["user"] != "" {
 		cfg.User = kv["user"]
 	}

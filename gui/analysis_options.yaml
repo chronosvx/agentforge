@@ -1,9 +1,0 @@
-analyzer:
-  exclude:
-    - build/**
-    - macos/**
-include: package:flutter_lints/flutter.yaml
-
-linter:
-  rules:
-    prefer_const_constructors: true

@@ -2,8 +2,10 @@ package ui
 
 import (
 	"context"
-	"github.com/chronosvx/agentforge/internal/session"
+	"strings"
 	"time"
+
+	"github.com/chronosvx/agentforge/internal/session"
 )
 
 func (m *Model) persist() {
@@ -39,10 +41,34 @@ func (m *Model) persistNow() {
 		return
 	}
 	now := time.Now()
+	workspace := ""
+	if m.cfg != nil {
+		workspace = m.cfg.Workspace
+	}
+	title := workspace
+	if m.sessionTitle != "" {
+		title = m.sessionTitle
+	} else {
+		for _, msg := range m.messages {
+			if msg.Role != "user" {
+				continue
+			}
+			candidate := strings.TrimSpace(msg.Content)
+			if candidate == "" {
+				break
+			}
+			if runes := []rune(candidate); len(runes) > 40 {
+				candidate = string(runes[:40])
+			}
+			title = candidate
+			m.sessionTitle = candidate
+			break
+		}
+	}
 	entry := session.Entry{
 		ID:        m.sessionID,
-		Workspace: m.cfg.Workspace,
-		Title:     m.cfg.Workspace,
+		Workspace: workspace,
+		Title:     title,
 		CreatedAt: now,
 		UpdatedAt: now,
 		Messages:  m.messages,

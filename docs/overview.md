@@ -2,8 +2,6 @@
 
 > 语言：中文（简体）。英文用户请先阅读 [English README](../README.en.md)。
 
-> 真实截图/动图待补充：可把终端录屏或截图放到 `docs/screenshots/` 后在此引用。捕获方案见 [docs/screenshots/README.md](screenshots/README.md)。
-
 ## 界面布局（文字版示意）
 
 ```text
@@ -42,11 +40,3 @@ dsh --profile web --no-open --port 0
 go run ./cmd/agentforge --api-url http://127.0.0.1:<port>
 ```
 
-## 截图/动图建议
-
-1. `docs/screenshots/mock-chat.png`：mock 聊天主界面
-2. `docs/screenshots/diff-review.png`：Diff Review 面板
-3. `docs/screenshots/split-view.png`：双会话并排
-4. `docs/screenshots/demo.gif`：完整操作演示
-
-放置后在 README 中引用即可。
