@@ -1,9 +1,6 @@
-// Package orchestrator 提供多 Agent 协作与任务编排。
-//
-// 它把一个复杂任务拆成多个子任务，子任务可以声明依赖关系；
-// Orchestrator 负责计算可并行就绪的子任务、记录完成/失败状态，
-// 并汇总整个任务的执行情况。该包不依赖 internal/ui。
-package orchestrator
+// This file contains the dependency-aware orchestrator used by the multiagent
+// package to schedule subtasks. It does not depend on internal/ui.
+package multiagent
 
 import (
 	"errors"
@@ -57,8 +54,8 @@ type SubTask struct {
 	DependsOn []string
 }
 
-// Task 是一个可被 Orchestrator 管理的复杂任务。
-type Task struct {
+// TaskGroup 是一个可被 Orchestrator 管理的复杂任务。
+type TaskGroup struct {
 	ID          string
 	Name        string
 	Description string
@@ -77,18 +74,18 @@ type Summary struct {
 	Status  TaskStatus
 }
 
-// Orchestrator 管理多个 Task，并负责子任务的依赖就绪与状态流转。
+// Orchestrator 管理多个 TaskGroup，并负责子任务的依赖就绪与状态流转。
 //
 // 零值可用；所有方法均加锁，可安全并发调用。
 type Orchestrator struct {
 	mu    sync.Mutex
-	tasks map[string]*Task
+	tasks map[string]*TaskGroup
 	order []string
 }
 
 // New 创建一个空的 Orchestrator。
 func New() *Orchestrator {
-	return &Orchestrator{tasks: make(map[string]*Task)}
+	return &Orchestrator{tasks: make(map[string]*TaskGroup)}
 }
 
 // NewOrchestrator 是 New 的别名，便于调用方按名称实例化。
@@ -99,27 +96,27 @@ func NewOrchestrator() *Orchestrator {
 // AddTask 添加一个任务。任务 ID 不能为空且不能重复；子任务 ID 必须在
 // 任务内唯一，DependsOn 只能引用任务内已存在的子任务，且不能形成依赖环。
 // 添加时会把所有子任务重置为 StatusPending。
-func (o *Orchestrator) AddTask(task Task) error {
+func (o *Orchestrator) AddTask(task TaskGroup) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
 	if o.tasks == nil {
-		o.tasks = make(map[string]*Task)
+		o.tasks = make(map[string]*TaskGroup)
 	}
 	if task.ID == "" {
-		return errors.New("orchestrator: task id is empty")
+		return errors.New("multiagent: task id is empty")
 	}
 	if _, ok := o.tasks[task.ID]; ok {
-		return fmt.Errorf("orchestrator: task %q already exists", task.ID)
+		return fmt.Errorf("multiagent: task %q already exists", task.ID)
 	}
 
 	ids := make(map[string]struct{}, len(task.SubTasks))
 	for _, st := range task.SubTasks {
 		if st.ID == "" {
-			return fmt.Errorf("orchestrator: task %q has a subtask with empty id", task.ID)
+			return fmt.Errorf("multiagent: task %q has a subtask with empty id", task.ID)
 		}
 		if _, dup := ids[st.ID]; dup {
-			return fmt.Errorf("orchestrator: task %q has duplicate subtask id %q", task.ID, st.ID)
+			return fmt.Errorf("multiagent: task %q has duplicate subtask id %q", task.ID, st.ID)
 		}
 		ids[st.ID] = struct{}{}
 	}
@@ -128,10 +125,10 @@ func (o *Orchestrator) AddTask(task Task) error {
 		st := &task.SubTasks[i]
 		for _, dep := range st.DependsOn {
 			if dep == st.ID {
-				return fmt.Errorf("orchestrator: subtask %q cannot depend on itself", st.ID)
+				return fmt.Errorf("multiagent: subtask %q cannot depend on itself", st.ID)
 			}
 			if _, ok := ids[dep]; !ok {
-				return fmt.Errorf("orchestrator: subtask %q depends on unknown subtask %q", st.ID, dep)
+				return fmt.Errorf("multiagent: subtask %q depends on unknown subtask %q", st.ID, dep)
 			}
 		}
 	}
@@ -140,7 +137,7 @@ func (o *Orchestrator) AddTask(task Task) error {
 		return err
 	}
 
-	cp := Task{
+	cp := TaskGroup{
 		ID:          task.ID,
 		Name:        task.Name,
 		Description: task.Description,
@@ -206,7 +203,7 @@ func (o *Orchestrator) MarkDone(args ...string) error {
 		return nil
 	}
 	if st.Status == StatusFailed {
-		return fmt.Errorf("orchestrator: subtask %q already failed, cannot mark done", st.ID)
+		return fmt.Errorf("multiagent: subtask %q already failed, cannot mark done", st.ID)
 	}
 	st.Status = StatusDone
 	_ = t
@@ -228,7 +225,7 @@ func (o *Orchestrator) MarkFailed(args ...string) error {
 		return nil
 	}
 	if st.Status == StatusDone {
-		return fmt.Errorf("orchestrator: subtask %q already done, cannot mark failed", st.ID)
+		return fmt.Errorf("multiagent: subtask %q already done, cannot mark failed", st.ID)
 	}
 	st.Status = StatusFailed
 	failDependentsLocked(t, st.ID)
@@ -287,20 +284,20 @@ func (o *Orchestrator) Summary(taskIDs ...string) Summary {
 	return summarizeTaskLocked(t)
 }
 
-func (o *Orchestrator) taskLocked(id string) (*Task, error) {
+func (o *Orchestrator) taskLocked(id string) (*TaskGroup, error) {
 	if id == "" {
-		return nil, errors.New("orchestrator: task id is empty")
+		return nil, errors.New("multiagent: task id is empty")
 	}
 	t, ok := o.tasks[id]
 	if !ok {
-		return nil, fmt.Errorf("orchestrator: task %q not found", id)
+		return nil, fmt.Errorf("multiagent: task %q not found", id)
 	}
 	return t, nil
 }
 
-func (o *Orchestrator) locateSubTask(args []string) (*Task, *SubTask, error) {
+func (o *Orchestrator) locateSubTask(args []string) (*TaskGroup, *SubTask, error) {
 	if o.tasks == nil {
-		return nil, nil, errors.New("orchestrator: no tasks added")
+		return nil, nil, errors.New("multiagent: no tasks added")
 	}
 
 	switch len(args) {
@@ -313,7 +310,7 @@ func (o *Orchestrator) locateSubTask(args []string) (*Task, *SubTask, error) {
 				}
 			}
 		}
-		return nil, nil, fmt.Errorf("orchestrator: subtask %q not found", args[0])
+		return nil, nil, fmt.Errorf("multiagent: subtask %q not found", args[0])
 	case 2:
 		// 优先按 (taskID, subTaskID) 解释，也兼容 (subTaskID, taskID)。
 		if t, err := o.taskLocked(args[0]); err == nil {
@@ -330,13 +327,13 @@ func (o *Orchestrator) locateSubTask(args []string) (*Task, *SubTask, error) {
 				}
 			}
 		}
-		return nil, nil, fmt.Errorf("orchestrator: subtask %q not found in task %q", args[1], args[0])
+		return nil, nil, fmt.Errorf("multiagent: subtask %q not found in task %q", args[1], args[0])
 	default:
-		return nil, nil, errors.New("orchestrator: expected subtask id or task id + subtask id")
+		return nil, nil, errors.New("multiagent: expected subtask id or task id + subtask id")
 	}
 }
 
-func nextReadyLocked(t *Task) *SubTask {
+func nextReadyLocked(t *TaskGroup) *SubTask {
 	for i := range t.SubTasks {
 		st := &t.SubTasks[i]
 		if st.Status == StatusRunning || st.Status == StatusDone || st.Status == StatusFailed {
@@ -353,7 +350,7 @@ func nextReadyLocked(t *Task) *SubTask {
 	return nil
 }
 
-func dependenciesDoneLocked(t *Task, st *SubTask) bool {
+func dependenciesDoneLocked(t *TaskGroup, st *SubTask) bool {
 	statusByID := make(map[string]Status, len(t.SubTasks))
 	for i := range t.SubTasks {
 		statusByID[t.SubTasks[i].ID] = t.SubTasks[i].Status
@@ -366,7 +363,7 @@ func dependenciesDoneLocked(t *Task, st *SubTask) bool {
 	return true
 }
 
-func failDependentsLocked(t *Task, failedID string) {
+func failDependentsLocked(t *TaskGroup, failedID string) {
 	for i := range t.SubTasks {
 		st := &t.SubTasks[i]
 		if st.Status == StatusDone || st.Status == StatusFailed {
@@ -382,7 +379,7 @@ func failDependentsLocked(t *Task, failedID string) {
 	}
 }
 
-func taskStatusLocked(t *Task) TaskStatus {
+func taskStatusLocked(t *TaskGroup) TaskStatus {
 	hasRunningOrReady := false
 	hasPending := false
 	for i := range t.SubTasks {
@@ -432,7 +429,7 @@ func overallStatusLocked(o *Orchestrator) TaskStatus {
 	return TaskStatusDone
 }
 
-func summarizeTaskLocked(t *Task) Summary {
+func summarizeTaskLocked(t *TaskGroup) Summary {
 	s := Summary{TaskID: t.ID}
 	for i := range t.SubTasks {
 		st := &t.SubTasks[i]
@@ -471,7 +468,7 @@ func detectCycle(subtasks []SubTask) error {
 	visit = func(id string) error {
 		switch state[id] {
 		case visiting:
-			return fmt.Errorf("orchestrator: dependency cycle detected at %q", id)
+			return fmt.Errorf("multiagent: dependency cycle detected at %q", id)
 		case done:
 			return nil
 		}

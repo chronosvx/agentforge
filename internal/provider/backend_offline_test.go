@@ -9,7 +9,6 @@ import (
 
 	"github.com/chronosvx/agentforge/internal/client"
 	"github.com/chronosvx/agentforge/internal/cost"
-	"github.com/chronosvx/agentforge/internal/offline"
 )
 
 type backendFakeProvider struct {
@@ -35,7 +34,7 @@ func (p *backendFakeProvider) StreamChat(ctx context.Context, req ChatRequest) (
 }
 
 func TestBackendStreamErrorQueuesOffline(t *testing.T) {
-	q := offline.NewQueue(filepath.Join(t.TempDir(), "queue.json"))
+	q := NewQueue(filepath.Join(t.TempDir(), "queue.json"))
 	p := &backendFakeProvider{streamErr: errors.New("network down")}
 	b := NewBackendWithOffline(p, nil, q)
 
@@ -81,7 +80,7 @@ func TestBackendStreamErrorQueuesOffline(t *testing.T) {
 }
 
 func TestBackendFlushOfflineRemovesQueuedItem(t *testing.T) {
-	q := offline.NewQueue(filepath.Join(t.TempDir(), "queue.json"))
+	q := NewQueue(filepath.Join(t.TempDir(), "queue.json"))
 	p := &backendFakeProvider{streamErr: errors.New("network down")}
 	b := NewBackend(p, nil)
 	b.SetOfflineQueue(q)
@@ -129,7 +128,7 @@ func TestBackendFlushOfflineRemovesQueuedItem(t *testing.T) {
 }
 
 func TestBackendFlushOfflineKeepsItemWhenRetryFails(t *testing.T) {
-	q := offline.NewQueue(filepath.Join(t.TempDir(), "queue.json"))
+	q := NewQueue(filepath.Join(t.TempDir(), "queue.json"))
 	p := &backendFakeProvider{streamErr: errors.New("still down")}
 	b := NewBackend(p, nil)
 	b.SetOfflineQueue(q)
@@ -179,7 +178,7 @@ func TestBackendFlushOfflineKeepsItemWhenRetryFails(t *testing.T) {
 }
 
 func TestBackendFlushOfflineReopensClosedSession(t *testing.T) {
-	q := offline.NewQueue(filepath.Join(t.TempDir(), "queue.json"))
+	q := NewQueue(filepath.Join(t.TempDir(), "queue.json"))
 	p := &backendFakeProvider{streamErr: errors.New("network down")}
 	b := NewBackend(p, nil)
 	b.SetOfflineQueue(q)
@@ -230,7 +229,7 @@ func TestBackendFlushOfflineReopensClosedSession(t *testing.T) {
 	b.mu.Unlock()
 }
 
-func waitForOfflineItem(t *testing.T, q *offline.Queue) offline.Item {
+func waitForOfflineItem(t *testing.T, q *Queue) Item {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -244,7 +243,7 @@ func waitForOfflineItem(t *testing.T, q *offline.Queue) offline.Item {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("timed out waiting for offline queue item")
-	return offline.Item{}
+	return Item{}
 }
 
 func waitForOfflineEvent(t *testing.T, events <-chan client.Event) client.Event {

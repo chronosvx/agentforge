@@ -1,13 +1,11 @@
 // Package multiagent provides a small task runner that schedules independent
-// and dependent tasks through the orchestrator package.
+// and dependent tasks through the in-package orchestrator.
 package multiagent
 
 import (
 	"context"
 	"errors"
 	"fmt"
-
-	"github.com/chronosvx/agentforge/internal/orchestrator"
 )
 
 // maxConcurrent is the maximum number of tasks executed at the same time.
@@ -83,20 +81,20 @@ func (r *Runner) Run(ctx context.Context, tasks []Task, deps map[string][]string
 	}
 
 	// The orchestrator models dependencies between subtasks inside a single
-	// task, so all multiagent tasks are registered as one orchestrator task.
+	// task group, so all multiagent tasks are registered as one TaskGroup.
 	// This lets deps reference other task IDs while still using NextReady and
 	// MarkDone/MarkFailed for scheduling.
-	o := orchestrator.New()
-	subtasks := make([]orchestrator.SubTask, 0, len(tasks))
+	o := New()
+	subtasks := make([]SubTask, 0, len(tasks))
 	for _, task := range tasks {
 		depends := append([]string(nil), task.Dependencies...)
 		depends = append(depends, deps[task.ID]...)
-		subtasks = append(subtasks, orchestrator.SubTask{
+		subtasks = append(subtasks, SubTask{
 			ID:        task.ID,
 			DependsOn: depends,
 		})
 	}
-	if err := o.AddTask(orchestrator.Task{ID: "multiagent", SubTasks: subtasks}); err != nil {
+	if err := o.AddTask(TaskGroup{ID: "multiagent", SubTasks: subtasks}); err != nil {
 		return nil, fmt.Errorf("multiagent: add tasks: %w", err)
 	}
 
@@ -112,7 +110,7 @@ func (r *Runner) Run(ctx context.Context, tasks []Task, deps map[string][]string
 			idx := indexByID[st.ID]
 			task := tasks[idx]
 			executed[task.ID] = true
-			go func(st *orchestrator.SubTask, task Task, idx int) {
+			go func(st *SubTask, task Task, idx int) {
 				sem <- struct{}{}
 				defer func() {
 					<-sem
@@ -141,7 +139,7 @@ func (r *Runner) Run(ctx context.Context, tasks []Task, deps map[string][]string
 		running--
 	}
 
-	if o.Status() == orchestrator.TaskStatusFailed {
+	if o.Status() == TaskStatusFailed {
 		for i, task := range tasks {
 			if !executed[task.ID] && results[i].Err == nil {
 				results[i].Err = errors.New("multiagent: task skipped because a dependency failed")

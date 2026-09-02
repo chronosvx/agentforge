@@ -1,8 +1,8 @@
-// Package offline 提供基于本地 JSON 文件的离线消息队列。
+// 本文件提供基于本地 JSON 文件的离线消息队列。
 //
 // 当直连模型厂商暂时不可用时，上层可以把用户消息暂存到队列中，
 // 网络恢复后再逐条取出并发送。
-package offline
+package provider
 
 import (
 	"crypto/rand"

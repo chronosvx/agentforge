@@ -1,4 +1,4 @@
-package orchestrator
+package multiagent
 
 import (
 	"testing"
@@ -8,7 +8,7 @@ import (
 
 func TestTaskSplitAndBasicExecution(t *testing.T) {
 	o := New()
-	task := Task{
+	task := TaskGroup{
 		ID:   "task-1",
 		Name: "实现多 Agent 协作",
 		SubTasks: []SubTask{
@@ -53,7 +53,7 @@ func TestTaskSplitAndBasicExecution(t *testing.T) {
 
 func TestDependencyOrdering(t *testing.T) {
 	o := New()
-	err := o.AddTask(Task{
+	err := o.AddTask(TaskGroup{
 		ID: "chain",
 		SubTasks: []SubTask{
 			{ID: "a", DependsOn: nil},
@@ -76,7 +76,7 @@ func TestDependencyOrdering(t *testing.T) {
 
 func TestParallelReady(t *testing.T) {
 	o := New()
-	err := o.AddTask(Task{
+	err := o.AddTask(TaskGroup{
 		ID: "parallel",
 		SubTasks: []SubTask{
 			{ID: "p1"},
@@ -111,7 +111,7 @@ func TestParallelReady(t *testing.T) {
 
 func TestFailurePropagation(t *testing.T) {
 	o := New()
-	err := o.AddTask(Task{
+	err := o.AddTask(TaskGroup{
 		ID: "fail-chain",
 		SubTasks: []SubTask{
 			{ID: "a"},
@@ -163,7 +163,7 @@ func TestFailurePropagation(t *testing.T) {
 
 func TestSummary(t *testing.T) {
 	o := New()
-	err := o.AddTask(Task{
+	err := o.AddTask(TaskGroup{
 		ID: "summary",
 		SubTasks: []SubTask{
 			{ID: "done1"},
@@ -197,16 +197,16 @@ func TestSummary(t *testing.T) {
 
 func TestAddTaskValidation(t *testing.T) {
 	o := New()
-	if err := o.AddTask(Task{ID: "dup", SubTasks: []SubTask{{ID: "x"}}}); err != nil {
+	if err := o.AddTask(TaskGroup{ID: "dup", SubTasks: []SubTask{{ID: "x"}}}); err != nil {
 		t.Fatalf("AddTask(first) error: %v", err)
 	}
-	if err := o.AddTask(Task{ID: "dup", SubTasks: []SubTask{{ID: "y"}}}); err == nil {
+	if err := o.AddTask(TaskGroup{ID: "dup", SubTasks: []SubTask{{ID: "y"}}}); err == nil {
 		t.Fatal("AddTask(duplicate) error = nil, want error")
 	}
-	if err := o.AddTask(Task{ID: "bad-dep", SubTasks: []SubTask{{ID: "x", DependsOn: []string{"missing"}}}}); err == nil {
+	if err := o.AddTask(TaskGroup{ID: "bad-dep", SubTasks: []SubTask{{ID: "x", DependsOn: []string{"missing"}}}}); err == nil {
 		t.Fatal("AddTask(unknown dep) error = nil, want error")
 	}
-	if err := o.AddTask(Task{ID: "cycle", SubTasks: []SubTask{
+	if err := o.AddTask(TaskGroup{ID: "cycle", SubTasks: []SubTask{
 		{ID: "a", DependsOn: []string{"b"}},
 		{ID: "b", DependsOn: []string{"a"}},
 	}}); err == nil {

@@ -10,7 +10,6 @@ import (
 
 	"github.com/chronosvx/agentforge/internal/client"
 	"github.com/chronosvx/agentforge/internal/cost"
-	"github.com/chronosvx/agentforge/internal/offline"
 	"github.com/chronosvx/agentforge/internal/session"
 )
 
@@ -24,7 +23,7 @@ type Backend struct {
 	provider Provider
 	store    session.LocalStore
 	model    string
-	offline  *offline.Queue
+	offline  *Queue
 	sessions map[string]*sessionState
 }
 
@@ -68,14 +67,14 @@ func NewBackendWithModel(p Provider, store session.LocalStore, model string) *Ba
 }
 
 // NewBackendWithOffline 创建基于 Provider 的 UI 后端，并设置离线消息队列。
-func NewBackendWithOffline(p Provider, store session.LocalStore, q *offline.Queue) *Backend {
+func NewBackendWithOffline(p Provider, store session.LocalStore, q *Queue) *Backend {
 	b := NewBackend(p, store)
 	b.offline = q
 	return b
 }
 
 // SetOfflineQueue 设置离线消息队列。队列用于 StreamChat 首次失败时暂存用户消息。
-func (b *Backend) SetOfflineQueue(q *offline.Queue) {
+func (b *Backend) SetOfflineQueue(q *Queue) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.offline = q
@@ -240,7 +239,7 @@ func (b *Backend) FlushOffline(ctx context.Context) error {
 
 // sendOffline 同步重发一条离线队列消息，并在收到终态事件后返回。
 // 返回 nil 表示重发成功；返回 error 表示重发失败，调用方应保留队列项。
-func (b *Backend) sendOffline(ctx context.Context, item offline.Item) error {
+func (b *Backend) sendOffline(ctx context.Context, item Item) error {
 	b.mu.Lock()
 	st := b.sessions[item.SessionID]
 	if st == nil {

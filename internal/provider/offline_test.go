@@ -1,4 +1,4 @@
-package offline
+package provider
 
 import (
 	"os"

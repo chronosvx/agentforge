@@ -8,7 +8,6 @@ import (
 	"github.com/chronosvx/agentforge/internal/config"
 	"github.com/chronosvx/agentforge/internal/dshapi"
 	"github.com/chronosvx/agentforge/internal/mock"
-	"github.com/chronosvx/agentforge/internal/offline"
 	"github.com/chronosvx/agentforge/internal/provider"
 	"github.com/chronosvx/agentforge/internal/security"
 	"github.com/chronosvx/agentforge/internal/session"
@@ -24,7 +23,7 @@ import (
 
 // offlineQueueBackend 是支持离线队列的聊天后端可选接口。
 type offlineQueueBackend interface {
-	SetOfflineQueue(*offline.Queue)
+	SetOfflineQueue(*provider.Queue)
 	FlushOffline(context.Context) error
 }
 
@@ -37,7 +36,7 @@ func setupOfflineQueue(cfg *config.Config, cl ui.ChatBackend, headless bool) {
 	if !ok {
 		return
 	}
-	q := offline.NewQueue(filepath.Join(cfg.DataDir, "offline.json"))
+	q := provider.NewQueue(filepath.Join(cfg.DataDir, "offline.json"))
 	ob.SetOfflineQueue(q)
 	if headless {
 		return
