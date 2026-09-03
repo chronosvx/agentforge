@@ -35,8 +35,25 @@ func ToOpenAIMessages(msgs []providerMessage) []map[string]any {
 	out := make([]map[string]any, 0, len(msgs))
 	for _, m := range msgs {
 		msg := map[string]any{
-			"role":    m.Role,
-			"content": m.Content,
+			"role": m.Role,
+		}
+		if len(m.Images) == 0 {
+			msg["content"] = m.Content
+		} else {
+			parts := make([]map[string]any, 0, 1+len(m.Images))
+			parts = append(parts, map[string]any{
+				"type": "text",
+				"text": m.Content,
+			})
+			for _, img := range m.Images {
+				parts = append(parts, map[string]any{
+					"type": "image_url",
+					"image_url": map[string]any{
+						"url": img.DataURL,
+					},
+				})
+			}
+			msg["content"] = parts
 		}
 
 		switch strings.ToLower(strings.TrimSpace(m.Role)) {

@@ -408,6 +408,19 @@ agentforge exec --ssh --host example.com --user alice --port 2222 --cmd "uname -
 - 执行通过异步 `tea.Cmd` 完成，不会阻塞 TUI；结果会渲染在面板中，同时状态栏给出摘要。
 - 在面板中按 `Esc` 可关闭面板。
 
+### TUI 内发送图片（`/image`）
+
+在 Provider 直连模式下，可以用 `/image` 把本地图片路径发送给支持多模态的模型（如 DeepSeek Vision、OpenAI 视觉模型等）：
+
+```text
+/image /path/to/photo.png 这张图里有什么？
+/image /path/to/diagram.png
+```
+
+- 不带文字时，UI 会自动使用“查看图片：<路径>”作为这条 user 消息的文本。
+- 支持 `png` / `jpg` / `jpeg` / `webp` / `gif`，单张图片最大 20MB。
+- Provider 会把图片读取为 data URL，并以 OpenAI Vision `content parts` 格式随消息发送；如果当前模型不支持多模态，由远端接口自行决定是否报错。
+
 ## 本地会话导出 / 导入
 
 以下子命令不会启动 TUI，而是直接读写本地会话 JSON，适合备份、迁移与手动归档。
@@ -596,6 +609,7 @@ DSH_TELEMETRY=1 agentforge
 | `/forget <键>` | 删除一条项目记忆 |
 | `/memory [查询]` | 列出或搜索项目记忆 |
 | `/exec [local\|docker\|ssh] [options] -- <命令>` | 打开沙箱/远程执行面板并运行命令 |
+| `/image <图片路径> [文字...]` | 发送本地图片给支持多模态的模型（如 DeepSeek Vision），Provider 会读取文件并编码为 data URL |
 | `/multi <提示词1,提示词2,...>` 或 `/multi [{"id":"a","prompt":"...","deps":["b"]}]` | 准备多 Agent 任务（JSON 形式支持依赖）并打开面板；用 `/multi-run` 执行 |
 | `/multi-run` | 执行 `/multi` 已准备的多 Agent 任务 |
 | `/agents` | 打开/关闭多 Agent 面板 |

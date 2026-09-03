@@ -26,8 +26,9 @@ import (
 )
 
 type fakeBackend struct {
-	invokes []string
-	subCtx  context.Context
+	invokes    []string
+	invokeArgs [][]any
+	subCtx     context.Context
 }
 
 func (f *fakeBackend) Open(ctx context.Context, workspace, sessionID string, options map[string]any) (*client.Snapshot, error) {
@@ -41,6 +42,7 @@ func (f *fakeBackend) Subscribe(ctx context.Context, channelID string, after int
 
 func (f *fakeBackend) Invoke(ctx context.Context, channelID, method string, args []any) (any, error) {
 	f.invokes = append(f.invokes, channelID)
+	f.invokeArgs = append(f.invokeArgs, append([]any(nil), args...))
 	return nil, nil
 }
 

@@ -136,7 +136,7 @@ UI 体验细节：
 
 ## 内置命令
 
-在输入框输入以下命令并回车（不会发给 Agent）：
+在输入框输入以下命令并回车（除 `/image` 外，不会作为普通消息发给 Agent）：
 
 | 命令 | 作用 |
 |---|---|
@@ -182,12 +182,20 @@ UI 体验细节：
 | `/forget <键>` | 删除一条项目记忆 |
 | `/memory [查询]` | 列出或搜索项目记忆 |
 | `/exec [命令]` | 打开执行面板，或直接执行命令 |
+| `/image <图片路径> [文字...]` | 发送本地图片给支持多模态的模型（如 DeepSeek Vision），Provider 会读取文件并编码为 data URL |
 | `/multi <提示词1,提示词2,...>` 或 `/multi [{"id":"a","prompt":"...","deps":["b"]}]` | 准备多 Agent 任务（JSON 形式支持依赖）并打开面板；用 `/multi-run` 执行 |
 | `/multi-run` | 执行 `/multi` 已准备的多 Agent 任务 |
 | `/agents` | 打开/关闭多 Agent 面板 |
 | `/agentview` | 打开会话总览（当前会话、最近会话、运行中的多 Agent 任务） |
 | `/help` | 显示可用命令 |
 | `/close` | 关闭当前 Channel |
+
+图片输入示例：
+
+```text
+/image ~/Desktop/demo.png 请描述这张图片里的内容
+/image ~/Desktop/diagram.png
+```
 
 > MCP 工具需要确认时会弹出审批面板，支持 `a` 本次允许、`s` 总是允许、`d` 拒绝本次、`n` 拒绝并记住；`Esc` / `q` 可取消本次调用。
 

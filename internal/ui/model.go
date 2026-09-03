@@ -95,7 +95,7 @@ var commandPaletteCommands = []string{
 	"/agent", "/agent-new", "/agent-reset", "/checkpoint", "/rewind", "/mcp", "/mcp-call",
 	"/mcp-approve", "/mcp-cancel", "/mcp-auto", "/mcp-confirm", "/mcp-deny", "/mcp-audit",
 	"/timeline", "/fork", "/remember", "/forget", "/memory",
-	"/exec", "/multi", "/multi-run", "/agents",
+	"/exec", "/image", "/multi", "/multi-run", "/agents",
 	"/agentview", "/history", "/compact",
 	"/chat", "/workbench",
 	"/theme", "/exit", "/quit",
@@ -107,7 +107,7 @@ var basicCommandPaletteCommands = []string{
 	"/help", "/new", "/sessions", "/search", "/find",
 	"/diff", "/todos", "/tools", "/skills",
 	"/context", "/cost", "/right", "/split",
-	"/exec", "/agent", "/agent-new", "/multi", "/multi-run", "/agents",
+	"/exec", "/image", "/agent", "/agent-new", "/multi", "/multi-run", "/agents",
 	"/agentview", "/history", "/compact",
 	"/model", "/rename", "/delete", "/export", "/close", "/clear", "/status", "/memory",
 	"/chat", "/workbench",
@@ -1485,6 +1485,26 @@ func (m Model) sendCmdTo(text, channelID string) tea.Cmd {
 		m.auditEvent("message.sent", map[string]any{
 			"sessionId": m.sessionID,
 			"channelId": channelID,
+		})
+		return sentMsg{text: text}
+	}
+}
+
+// sendImageCmd 发送带图片路径的用户消息；图片由 Provider Backend 读取并编码。
+func (m Model) sendImageCmd(text string, paths []string) tea.Cmd {
+	return func() tea.Msg {
+		if m.channelID == "" {
+			return errMsg{fmt.Errorf("not connected")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, err := m.cl.Invoke(ctx, m.channelID, "chat", []any{text, paths})
+		if err != nil {
+			return errMsg{err}
+		}
+		m.auditEvent("message.sent", map[string]any{
+			"sessionId": m.sessionID,
+			"channelId": m.channelID,
 		})
 		return sentMsg{text: text}
 	}

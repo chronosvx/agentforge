@@ -20,6 +20,8 @@ type Message struct {
 	Content    string     `json:"content"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
+	// Images 是消息附带的图片，由 MarshalJSON 编码进 content parts，不直接输出为独立字段。
+	Images []ImagePart `json:"-"`
 }
 
 // ToolCall 是模型发起的一次工具调用。

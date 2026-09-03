@@ -6,6 +6,7 @@ import (
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/chronosvx/agentforge/internal/client"
 	"github.com/chronosvx/agentforge/internal/config"
 	"github.com/chronosvx/agentforge/internal/i18n"
 	"github.com/chronosvx/agentforge/internal/mcp"
@@ -519,6 +520,8 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 		}
 	case "/compact":
 		m.handleCompactCommand()
+	case "/image":
+		return m.handleImageCommand(cmd)
 	case "/exec":
 		rest := strings.TrimSpace(strings.TrimPrefix(cmd, "/exec"))
 		if rest == "" {
@@ -744,6 +747,46 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 		m.status = i18n.T("status.unknown_command", cmd)
 	}
 	return nil
+}
+
+// handleImageCommand 处理 /image <图片路径> [文字...]。
+// 它校验文件存在，在本地追加一条 user 消息，然后调用 sendImageCmd 把文字和图片路径一起发给后端。
+func (m *Model) handleImageCommand(cmd string) tea.Cmd {
+	trimmed := strings.TrimSpace(cmd)
+	parts := strings.SplitN(trimmed, " ", 2)
+	if len(parts) < 2 || strings.TrimSpace(parts[1]) == "" {
+		m.status = "usage: /image <图片路径> [文字...]"
+		return nil
+	}
+
+	rest := strings.TrimSpace(parts[1])
+	pathParts := strings.SplitN(rest, " ", 2)
+	path := strings.TrimSpace(pathParts[0])
+	if path == "" {
+		m.status = "usage: /image <图片路径> [文字...]"
+		return nil
+	}
+	text := ""
+	if len(pathParts) == 2 {
+		text = strings.TrimSpace(pathParts[1])
+	}
+
+	if info, err := os.Stat(path); err != nil {
+		m.status = "image not found: " + err.Error()
+		return nil
+	} else if info.IsDir() {
+		m.status = "image path is a directory: " + path
+		return nil
+	}
+
+	if text == "" {
+		text = "查看图片：" + path
+	}
+
+	m.messages = append(m.messages, client.Message{Role: "user", Content: text})
+	m.dirty = true
+	m.syncWindowFromMessages()
+	return m.sendImageCmd(text, []string{path})
 }
 
 func (m *Model) statusSummary() string {

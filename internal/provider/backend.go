@@ -29,19 +29,20 @@ type Backend struct {
 
 // sessionState 是 Provider Backend 中一个本地会话的运行时状态。
 type sessionState struct {
-	id         string
-	workspace  string
-	messages   []client.Message
-	context    map[string]any
-	cost       map[string]any
-	tokenUsage map[string]any
-	seq        int64
-	streaming  bool
-	closed     bool
-	ctx        context.Context
-	cancel     context.CancelFunc
-	subs       map[chan client.Event]struct{}
-	sendMu     sync.Mutex
+	id            string
+	workspace     string
+	messages      []client.Message
+	context       map[string]any
+	cost          map[string]any
+	tokenUsage    map[string]any
+	seq           int64
+	streaming     bool
+	closed        bool
+	pendingImages []ImagePart
+	ctx           context.Context
+	cancel        context.CancelFunc
+	subs          map[chan client.Event]struct{}
+	sendMu        sync.Mutex
 }
 
 // NewBackend 创建基于 Provider 的 UI 后端。store 可为 nil，此时不写本地历史。
@@ -171,7 +172,11 @@ func (b *Backend) Invoke(ctx context.Context, channelID, method string, args []a
 		return nil, nil
 	}
 	text := firstText(args)
-	if text == "" {
+	images, err := LoadImages(imagePathsFromArgs(args))
+	if err != nil {
+		return nil, err
+	}
+	if text == "" && len(images) == 0 {
 		return nil, fmt.Errorf("provider backend: empty message")
 	}
 
@@ -188,6 +193,9 @@ func (b *Backend) Invoke(ctx context.Context, channelID, method string, args []a
 
 	st.streaming = true
 	st.messages = append(st.messages, client.Message{Role: "user", Content: text})
+	if len(images) > 0 {
+		st.pendingImages = append([]ImagePart(nil), images...)
+	}
 	st.seq++
 	ev := client.Event{
 		Operation: "event",
@@ -376,6 +384,15 @@ func (b *Backend) stream(st *sessionState, channelID, model string, fromOffline 
 			userText = m.Content
 		}
 	}
+	pendingImages := append([]ImagePart(nil), st.pendingImages...)
+	if len(pendingImages) > 0 {
+		for i := len(msgs) - 1; i >= 0; i-- {
+			if msgs[i].Role == "user" {
+				msgs[i].Images = append([]ImagePart(nil), pendingImages...)
+				break
+			}
+		}
+	}
 	streamCtx := st.ctx
 	if streamCtx == nil {
 		streamCtx = context.Background()
@@ -389,6 +406,12 @@ func (b *Backend) stream(st *sessionState, channelID, model string, fromOffline 
 		Messages: msgs,
 		Stream:   true,
 	})
+
+	// 无论发送成功或失败，本次 pendingImages 都已被消费，避免残留到下一次消息。
+	b.mu.Lock()
+	st.pendingImages = nil
+	b.mu.Unlock()
+
 	if err != nil {
 		if !fromOffline && offlineQueue != nil && userText != "" {
 			if enqueueErr := offlineQueue.EnqueueReplay(channelID, userText); enqueueErr != nil {
@@ -690,6 +713,59 @@ func firstText(args []any) string {
 		}
 	}
 	return ""
+}
+
+// imagePathsFromArgs 解析 Invoke args 中的图片路径。
+// 支持第二项为 []string 或 map[string]any{"images": []string}，
+// 也兼容第一项为 map 时直接携带 images 字段。
+func imagePathsFromArgs(args []any) []string {
+	if len(args) == 0 {
+		return nil
+	}
+	if len(args) > 1 {
+		if paths, ok := imagePathsFromValue(args[1]); ok {
+			return paths
+		}
+	}
+	if m, ok := args[0].(map[string]any); ok {
+		if paths, ok := imagePathsFromValue(m); ok {
+			return paths
+		}
+	}
+	return nil
+}
+
+func imagePathsFromValue(v any) ([]string, bool) {
+	switch val := v.(type) {
+	case []string:
+		return val, true
+	case []any:
+		paths := make([]string, 0, len(val))
+		for _, item := range val {
+			s, ok := item.(string)
+			if !ok {
+				return nil, false
+			}
+			paths = append(paths, s)
+		}
+		return paths, true
+	case map[string]any:
+		switch images := val["images"].(type) {
+		case []string:
+			return images, true
+		case []any:
+			paths := make([]string, 0, len(images))
+			for _, item := range images {
+				s, ok := item.(string)
+				if !ok {
+					return nil, false
+				}
+				paths = append(paths, s)
+			}
+			return paths, true
+		}
+	}
+	return nil, false
 }
 
 // ProviderOptions 描述从命令行创建直连 Provider 的参数。

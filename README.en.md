@@ -166,7 +166,7 @@ TUI multi-agent dependency tree / subtask tree:
 
 ## Built-in Commands
 
-Type a command in the input box and press Enter (it is not sent to the agent):
+Type a command in the input box and press Enter (except for `/image`, commands are not sent to the agent as normal messages):
 
 | Command | Action |
 |---|---|
@@ -208,6 +208,7 @@ Type a command in the input box and press Enter (it is not sent to the agent):
 | `/forget <key>` | Delete a project memory entry |
 | `/memory [query]` | List or search project memory |
 | `/exec [command]` | Open the execution panel, or run a command directly |
+| `/image <image-path> [text...]` | Send a local image to a multimodal model (e.g. DeepSeek Vision); the provider reads the file and encodes it as a data URL |
 | `/multi <prompt1,prompt2,...>` or `/multi [{"id":"a","prompt":"...","deps":["b"]}]` | Prepare multi-agent tasks (JSON form supports dependencies) and open the panel; use `/multi-run` to execute |
 | `/multi-run` | Execute the multi-agent tasks prepared by `/multi` |
 | `/agents` | Toggle the multi-agent panel |
