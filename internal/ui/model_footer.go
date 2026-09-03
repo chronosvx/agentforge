@@ -8,6 +8,22 @@ import (
 	"github.com/chronosvx/agentforge/internal/i18n"
 )
 
+// footerShortcutsHint returns the default footer shortcut hint. The text is
+// kept in the UI layer so the newline shortcut can be updated without touching
+// the i18n package.
+func (m *Model) footerShortcutsHint() string {
+	if m.workbenchMode {
+		if i18n.CurrentLang() == i18n.LangEN {
+			return "Enter run · Alt+Enter newline · Ctrl+P commands · ? help · Ctrl+C stop/quit"
+		}
+		return "Enter 执行 · Alt+Enter 换行 · Ctrl+P 命令 · ? 帮助 · Ctrl+C 停止/退出"
+	}
+	if i18n.CurrentLang() == i18n.LangEN {
+		return "Enter send · Alt+Enter/Shift+Enter/Ctrl+J newline · Ctrl+P commands · ? help · Ctrl+C stop/quit"
+	}
+	return "Enter 发送 · Alt+Enter/Shift+Enter/Ctrl+J 换行 · Ctrl+P 命令 · ? 帮助 · Ctrl+C 停止/退出"
+}
+
 // renderStatusBar 渲染底部状态栏：保留原有状态、会话、渠道和更新信息，
 // 并根据当前界面状态追加新手友好的快捷键提示。
 func (m *Model) renderStatusBar() string {
@@ -25,7 +41,7 @@ func (m *Model) renderStatusBar() string {
 		updateText = " | ⬆ " + sanitizeTerminalText(m.updateAvailable)
 	}
 
-	hint := i18n.T("footer.shortcuts")
+	hint := m.footerShortcutsHint()
 	switch {
 	case m.helpOpen:
 		hint = i18n.T("footer.help_hint")

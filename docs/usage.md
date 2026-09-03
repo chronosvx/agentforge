@@ -193,7 +193,7 @@ DSH_SECRET_KEY="$DSH_SECRET_KEY" agentforge --provider deepseek
 | `--provider` | 直连厂商名：`openai` / `deepseek` / `moonshot` / `kimi` / `zhipu` / `qwen` / `ollama` |
 | `--provider-key` | 直连厂商 API Key，多个用逗号分隔 |
 | `--provider-base-url` | 直连厂商 OpenAI 兼容 Base URL（可选） |
-| `--model` | 直连厂商模型名（可选） |
+| `--model` | 直连厂商模型名（可选）；DeepSeek 默认 `deepseek-v4-flash`，V4 可选 `deepseek-v4-pro` / `deepseek-v4-vision` / `deepseek-v4-flash-vision-exp`，旧模型仍可用 |
 | `--keychain` | 优先使用系统 Keychain/凭据管理器保存/读取 `--provider-key` |
 | `--secret-key` | 本地加密文件主密钥（hex/base64），为空时读取 `DSH_SECRET_KEY` |
 
@@ -272,7 +272,7 @@ agentforge --headless --api-url http://127.0.0.1:54695 --api-token <token> --pro
 agentforge --headless --mock --prompt "hello"
 
 # 指定模型
-agentforge --headless --provider deepseek --provider-key sk-xxx --model deepseek-chat --prompt "hello"
+agentforge --headless --provider deepseek --provider-key sk-xxx --model deepseek-v4-flash --prompt "hello"
 
 # 结构化 JSON 输出
 agentforge --headless --provider deepseek --provider-key sk-xxx --prompt "hello" --format json
@@ -285,6 +285,7 @@ agentforge --headless --provider deepseek --provider-key sk-xxx --prompt "hello"
 
 - `--headless` 与 `--prompt` 可放在其他参数之前或之后；`--prompt` 也支持 `--prompt=hello` 形式；`--format` 同样支持 `--format=stream-json`。
 - `--format` 可选 `text`（默认）、`json`、`stream-json`。`stream-json` 会把流式增量/事件逐行输出为 JSON Lines，便于管道实时处理。
+- DeepSeek V4 可选项：`deepseek-v4-flash`（默认）、`deepseek-v4-pro`、`deepseek-v4-vision`、`deepseek-v4-flash-vision-exp`；旧模型 `deepseek-chat` / `deepseek-reasoner` 仍可使用。
 - 非交互模式仍会执行与 TUI 相同的后端连接、密钥解析和审计初始化；可通过 `--no-audit` 关闭审计。
 - 收到 `SIGINT` / `SIGTERM` 时会取消等待并退出。
 
@@ -323,7 +324,7 @@ agentforge agent --prompt "edit README.md hello" --yes --commit --push --pr --pr
 | `--pr-body <body>` | PR 描述 |
 | `--provider <name>` | LLM 厂商（`--planner llm` 必填） |
 | `--provider-key <key>` | LLM API Key（`--planner llm` 必填） |
-| `--model <model>` | LLM 模型（可选） |
+| `--model <model>` | LLM 模型（可选；DeepSeek V4 可用 `deepseek-v4-flash` / `deepseek-v4-pro` / `deepseek-v4-vision`） |
 | `--base-url <url>` | OpenAI 兼容 Base URL（可选） |
 
 > ⚠️ **安全警告**：`--yes` 会自动批准所有动作。与 `--commit`、`--push`、`--pr` 一起使用时，会在没有逐条确认的情况下创建提交、推送到远端并创建 PR。请只在可信仓库或 CI 中使用，并确保工作区已备份或可回滚。

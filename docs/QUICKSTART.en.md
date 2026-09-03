@@ -215,8 +215,8 @@ Use this if you only want to use the DeepSeek official API without installing DS
 
 4. When the chat interface appears, type a message and press Enter to chat with DeepSeek.
 
-> Tip: The program uses DeepSeek's common model `deepseek-chat` by default, so you usually do not need to configure anything else.
-> To choose a model later, add `--model deepseek-chat` or `--model deepseek-reasoner`.
+> Tip: The program uses DeepSeek's V4 model `deepseek-v4-flash` by default, so you usually do not need to configure anything else.
+> To choose a model later, add `--model deepseek-v4-flash`, `--model deepseek-v4-pro`, or `--model deepseek-v4-vision` (`deepseek-v4-flash-vision-exp` is also supported). Legacy `deepseek-chat` / `deepseek-reasoner` remain available.
 
 ### No Key / No DSH?
 

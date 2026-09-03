@@ -13,6 +13,10 @@ func TestDefaultPricingTableHasCommonModels(t *testing.T) {
 	}{
 		{"DeepSeek", "DeepSeek-chat"},
 		{"DeepSeek", "deepseek-reasoner"},
+		{"DeepSeek", "deepseek-v4-flash"},
+		{"DeepSeek", "deepseek-v4-pro"},
+		{"DeepSeek", "deepseek-v4-vision"},
+		{"DeepSeek", "deepseek-v4-flash-vision-exp"},
 		{"OpenAI", "gpt-4o"},
 		{"OpenAI", "gpt-4o-mini"},
 		{"Moonshot", "kimi-k2"},
@@ -34,6 +38,44 @@ func TestDefaultPricingTableHasCommonModels(t *testing.T) {
 			}
 			if p.Provider != tc.provider || p.Model != tc.model {
 				t.Fatalf("Get(%q, %q) = %+v, want matching provider/model", tc.provider, tc.model, p)
+			}
+		})
+	}
+}
+
+func TestDeepSeekV4PricingValues(t *testing.T) {
+	table := DefaultPricingTable()
+
+	cases := []struct {
+		model      string
+		input      float64
+		output     float64
+		cacheRead  float64
+		cacheWrite float64
+	}{
+		{model: "deepseek-v4-flash", input: 1.0, output: 2.0, cacheRead: 0.05, cacheWrite: 1.0},
+		{model: "deepseek-v4-flash-vision-exp", input: 1.0, output: 2.0, cacheRead: 0.05, cacheWrite: 1.0},
+		{model: "deepseek-v4-pro", input: 4.0, output: 16.0, cacheRead: 1.0, cacheWrite: 4.0},
+		{model: "deepseek-v4-vision", input: 2.0, output: 8.0, cacheRead: 0.5, cacheWrite: 2.0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.model, func(t *testing.T) {
+			p, ok := table.Get("DeepSeek", tc.model)
+			if !ok {
+				t.Fatalf("Get(%q, %q) ok = false, want true", "DeepSeek", tc.model)
+			}
+			if p.InputPerMillion != tc.input {
+				t.Fatalf("%s InputPerMillion = %v, want %v", tc.model, p.InputPerMillion, tc.input)
+			}
+			if p.OutputPerMillion != tc.output {
+				t.Fatalf("%s OutputPerMillion = %v, want %v", tc.model, p.OutputPerMillion, tc.output)
+			}
+			if p.CacheReadPerMillion != tc.cacheRead {
+				t.Fatalf("%s CacheReadPerMillion = %v, want %v", tc.model, p.CacheReadPerMillion, tc.cacheRead)
+			}
+			if p.CacheWritePerMillion != tc.cacheWrite {
+				t.Fatalf("%s CacheWritePerMillion = %v, want %v", tc.model, p.CacheWritePerMillion, tc.cacheWrite)
 			}
 		})
 	}

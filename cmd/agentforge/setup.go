@@ -87,6 +87,10 @@ func runSetup(args []string) error {
 			cfg["provider"] = provider
 		}
 
+		if strings.EqualFold(strings.TrimSpace(provider), "deepseek") {
+			fmt.Println("DeepSeek 可用 V4 模型：deepseek-v4-flash（默认）/ deepseek-v4-pro / deepseek-v4-vision / deepseek-v4-flash-vision-exp")
+		}
+
 		model, err := askSetupValue(reader, "Model（可留空使用默认）", configString(cfg["model"]), false)
 		if err != nil {
 			return err

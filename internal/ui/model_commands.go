@@ -503,6 +503,20 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 		} else {
 			m.openHistorySearch()
 		}
+	case "/chat":
+		if m.workbenchMode {
+			m.applyUIMode(false)
+			m.status = "classic chat mode"
+		} else {
+			m.status = "already in classic chat mode"
+		}
+	case "/workbench":
+		if !m.workbenchMode {
+			m.applyUIMode(true)
+			m.status = "task workbench mode"
+		} else {
+			m.status = "already in task workbench mode"
+		}
 	case "/compact":
 		m.handleCompactCommand()
 	case "/exec":

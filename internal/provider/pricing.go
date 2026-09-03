@@ -118,6 +118,31 @@ func defaultPricings() []Pricing {
 			CacheReadPerMillion: 1, CacheWritePerMillion: 4,
 			Currency: "CNY", PlanType: PlanTypePayAsYouGo,
 		},
+		// DeepSeek V4（估算价，后续按官方价格更新）
+		{
+			Provider: "DeepSeek", Model: "deepseek-v4-flash",
+			InputPerMillion: 1.0, OutputPerMillion: 2.0,
+			CacheReadPerMillion: 0.05, CacheWritePerMillion: 1.0,
+			Currency: "CNY", PlanType: PlanTypePayAsYouGo,
+		},
+		{
+			Provider: "DeepSeek", Model: "deepseek-v4-flash-vision-exp",
+			InputPerMillion: 1.0, OutputPerMillion: 2.0,
+			CacheReadPerMillion: 0.05, CacheWritePerMillion: 1.0,
+			Currency: "CNY", PlanType: PlanTypePayAsYouGo,
+		},
+		{
+			Provider: "DeepSeek", Model: "deepseek-v4-pro",
+			InputPerMillion: 4.0, OutputPerMillion: 16.0,
+			CacheReadPerMillion: 1.0, CacheWritePerMillion: 4.0,
+			Currency: "CNY", PlanType: PlanTypePayAsYouGo,
+		},
+		{
+			Provider: "DeepSeek", Model: "deepseek-v4-vision",
+			InputPerMillion: 2.0, OutputPerMillion: 8.0,
+			CacheReadPerMillion: 0.5, CacheWritePerMillion: 2.0,
+			Currency: "CNY", PlanType: PlanTypePayAsYouGo,
+		},
 		// OpenAI
 		{
 			Provider: "OpenAI", Model: "gpt-4o",

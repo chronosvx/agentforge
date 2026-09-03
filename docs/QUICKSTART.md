@@ -215,8 +215,8 @@
 
 4. 看到聊天界面后，直接输入文字发送，就能和 DeepSeek 对话了。
 
-> 小提示：程序默认会使用 DeepSeek 的常用模型 `deepseek-chat`，一般不需要额外设置。  
-> 如果你以后想指定模型，可以加 `--model deepseek-chat` 或 `--model deepseek-reasoner`。
+> 小提示：程序默认会使用 DeepSeek 的 V4 模型 `deepseek-v4-flash`，一般不需要额外设置。  
+> 如果以后想指定模型，可以加 `--model deepseek-v4-flash`、`--model deepseek-v4-pro` 或 `--model deepseek-v4-vision`（也支持 `deepseek-v4-flash-vision-exp`）；旧模型 `deepseek-chat` / `deepseek-reasoner` 仍可使用。
 
 ### 没有 Key / 没有 DSH 怎么办？
 

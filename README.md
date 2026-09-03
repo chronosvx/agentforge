@@ -33,7 +33,7 @@ agentforge doctor
 agentforge setup
 
 # 生成配置（Provider / API URL / Keychain / 加密会话）
-agentforge init --provider deepseek --model deepseek-chat
+agentforge init --provider deepseek --model deepseek-v4-flash
 
 # 在当前项目生成 AGENT.md 项目上下文
 agentforge project-init
@@ -44,6 +44,8 @@ agentforge config
 # 无后端快速体验
 agentforge --mock
 ```
+
+> DeepSeek Provider 默认使用 `deepseek-v4-flash`，也可选择 `deepseek-v4-pro`、`deepseek-v4-vision` 或 `deepseek-v4-flash-vision-exp`（旧模型 `deepseek-chat` / `deepseek-reasoner` 仍可使用）。
 
 ## 文档
 

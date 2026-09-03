@@ -101,6 +101,22 @@ func defaultModelInfos() []ModelInfo {
 			Name: "deepseek-reasoner", ContextWindow: 64 * 1024, MaxOutput: 8 * 1024,
 			SupportsTools: true, SupportsStreaming: true,
 		},
+		{
+			Name: "deepseek-v4-flash", ContextWindow: 1_000_000, MaxOutput: 128_000,
+			SupportsTools: true, SupportsStreaming: true,
+		},
+		{
+			Name: "deepseek-v4-pro", ContextWindow: 1_000_000, MaxOutput: 128_000,
+			SupportsTools: true, SupportsStreaming: true,
+		},
+		{
+			Name: "deepseek-v4-vision", ContextWindow: 1_000_000, MaxOutput: 128_000,
+			SupportsTools: true, SupportsStreaming: true,
+		},
+		{
+			Name: "deepseek-v4-flash-vision-exp", ContextWindow: 1_000_000, MaxOutput: 128_000,
+			SupportsTools: true, SupportsStreaming: true,
+		},
 		// OpenAI
 		{
 			Name: "gpt-4o", ContextWindow: 128 * 1024, MaxOutput: 16 * 1024,

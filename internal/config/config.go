@@ -45,7 +45,7 @@ type Config struct {
 	ProviderKey       string  // 直连厂商 API Key，多个用逗号分隔
 	ProviderKeyStdin  bool    // 为 true 时从 stdin 读取 Provider Key，避免出现在命令行
 	ProviderBaseURL   string  // 直连厂商 OpenAI 兼容 Base URL（可选）
-	Model             string  // 直连厂商模型名（可选）
+	Model             string  // 直连厂商模型名（可选；DeepSeek 默认 deepseek-v4-flash）
 	Keychain          bool    // 为 true 时优先使用系统 Keychain 保存/读取 --provider-key
 	EncryptSessions   bool    // 为 true 时本地会话使用 AES-GCM 加密存储
 	SecretKey         string  // EncryptedFileStore 主密钥（hex/base64），也可用 DSH_SECRET_KEY
@@ -87,7 +87,7 @@ func Parse(args []string) (*Config, error) {
 	fs.StringVar(&cfg.ProviderKey, "provider-key", "", "直连厂商 API Key，多个用逗号分隔")
 	fs.BoolVar(&cfg.ProviderKeyStdin, "provider-key-stdin", false, "从 stdin 读取 Provider Key，避免出现在命令行")
 	fs.StringVar(&cfg.ProviderBaseURL, "provider-base-url", "", "直连厂商 OpenAI 兼容 Base URL（可选）")
-	fs.StringVar(&cfg.Model, "model", "", "直连厂商模型名（可选）")
+	fs.StringVar(&cfg.Model, "model", "", "直连厂商模型名（可选；DeepSeek 默认 deepseek-v4-flash，V4 可选 deepseek-v4-pro / deepseek-v4-vision / deepseek-v4-flash-vision-exp）")
 	fs.BoolVar(&cfg.Keychain, "keychain", false, "优先使用系统 Keychain/凭据管理器保存/读取 --provider-key")
 	fs.BoolVar(&cfg.EncryptSessions, "encrypt-sessions", false, "使用 AES-GCM 加密本地会话存储（需要 --secret-key 或 DSH_SECRET_KEY）")
 	fs.StringVar(&cfg.SecretKey, "secret-key", "", "EncryptedFileStore 主密钥（hex/base64；为空时读取 DSH_SECRET_KEY）")

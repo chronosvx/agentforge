@@ -30,7 +30,7 @@
 agentforge doctor
 
 # Generate a config file
-agentforge init --provider deepseek --model deepseek-chat
+agentforge init --provider deepseek --model deepseek-v4-flash
 
 # Show effective config (secrets masked)
 agentforge config
@@ -38,6 +38,8 @@ agentforge config
 # Try the TUI without a backend
 agentforge --mock
 ```
+
+> DeepSeek Provider defaults to `deepseek-v4-flash`; you can also choose `deepseek-v4-pro`, `deepseek-v4-vision`, or `deepseek-v4-flash-vision-exp`. Legacy `deepseek-chat` / `deepseek-reasoner` remain available.
 
 ## Documentation
 

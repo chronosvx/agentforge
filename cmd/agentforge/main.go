@@ -35,7 +35,7 @@ func main() {
 	}
 }
 
-var version = "0.7.0"
+var version = "0.8.0"
 
 func run() error {
 	args := os.Args[1:]
@@ -103,7 +103,7 @@ func run() error {
 	}
 
 	if !hasConfiguredBackend(cfg) {
-		return errors.New("no backend configured\n\nTry one of:\n  agentforge --mock\n  agentforge --provider deepseek --provider-key sk-xxx\n  agentforge --api-url http://127.0.0.1:54695\n\nSee docs/QUICKSTART.md")
+		return errors.New("no backend configured\n\nTry one of:\n  agentforge --mock\n  agentforge --provider deepseek --model deepseek-v4-flash --provider-key sk-xxx\n  agentforge --api-url http://127.0.0.1:54695\n\nSee docs/QUICKSTART.md")
 	}
 
 	warnPlaintextSecrets(cfg)
@@ -240,6 +240,7 @@ Flags:
   --mock              Run with the built-in mock backend
   --provider NAME     Use a direct model provider (deepseek, openai, ...)
   --provider-key KEY  Provider API key
+  --model MODEL       Model name (DeepSeek defaults to deepseek-v4-flash; V4 options: deepseek-v4-flash / deepseek-v4-pro / deepseek-v4-vision / deepseek-v4-flash-vision-exp)
   --api-url URL       Connect to a real DSH Web API
   --data-dir DIR      Local data directory (default ~/.agentforge)
   --lang zh|en        UI language (default zh)
@@ -249,7 +250,7 @@ Flags:
 
 Examples:
   agentforge --mock
-  agentforge --provider deepseek --provider-key sk-xxx --keychain
+  agentforge --provider deepseek --model deepseek-v4-flash --provider-key sk-xxx --keychain
   agentforge agent --prompt "add --version to main.go" --planner llm --repo --yes
   agentforge doctor
 

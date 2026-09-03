@@ -97,6 +97,7 @@ var commandPaletteCommands = []string{
 	"/timeline", "/fork", "/remember", "/forget", "/memory",
 	"/exec", "/multi", "/multi-run", "/agents",
 	"/agentview", "/history", "/compact",
+	"/chat", "/workbench",
 	"/theme", "/exit", "/quit",
 }
 
@@ -109,6 +110,7 @@ var basicCommandPaletteCommands = []string{
 	"/exec", "/agent", "/agent-new", "/multi", "/multi-run", "/agents",
 	"/agentview", "/history", "/compact",
 	"/model", "/rename", "/delete", "/export", "/close", "/clear", "/status", "/memory",
+	"/chat", "/workbench",
 	"/theme",
 }
 
@@ -270,6 +272,10 @@ type Model struct {
 	splitMessages       []client.Message
 	splitMessagesLoaded bool
 
+	// UI mode: workbenchMode=true renders tasks/commands and results;
+	// false renders the classic chat-bubble conversation.
+	workbenchMode bool
+
 	// Virtual scrolling / incremental rendering state.
 	dirty                 bool
 	redraw                bool
@@ -297,7 +303,7 @@ func New(cfg *config.Config, cl ChatBackend, store session.LocalStore, auditFn .
 	i18n.SetLang(lang)
 
 	input := textarea.New()
-	input.Placeholder = i18n.T("input.placeholder")
+	input.Placeholder = workbenchPlaceholder(lang, true)
 	input.SetWidth(80)
 	input.SetHeight(1)
 	input.ShowLineNumbers = false
@@ -319,6 +325,7 @@ func New(cfg *config.Config, cl ChatBackend, store session.LocalStore, auditFn .
 		mcpAudit:      mcp.NewAuditLog(),
 		timeline:      contextx.NewTimeline(),
 		followBottom:  true,
+		workbenchMode: true,
 	}
 	if cfg != nil {
 		m.keybindings = loadKeybindings(cfg.DataDir)
@@ -380,6 +387,32 @@ func New(cfg *config.Config, cl ChatBackend, store session.LocalStore, auditFn .
 	}
 
 	return m
+}
+
+// workbenchPlaceholder returns the input placeholder for the requested UI mode.
+// These strings are kept in the UI layer because the i18n package is outside
+// the allowed edit scope.
+func workbenchPlaceholder(lang i18n.Lang, workbench bool) string {
+	if workbench {
+		if lang == i18n.LangEN {
+			return "Enter a task or command, Enter to run, Alt+Enter for newline"
+		}
+		return "输入任务或命令，Enter 执行，Alt+Enter 换行"
+	}
+	if lang == i18n.LangEN {
+		return "Type a message, Enter to send, Alt+Enter/Shift+Enter/Ctrl+J newline, Ctrl+P commands, Ctrl+R history, Ctrl+/ help, Ctrl+C quit"
+	}
+	return "输入消息，Enter 发送，Alt+Enter/Shift+Enter/Ctrl+J 换行，Ctrl+P 命令，Ctrl+R 历史，Ctrl+/ 帮助，Ctrl+C 退出"
+}
+
+// applyUIMode switches between workbench and classic chat rendering and updates
+// user-facing copy that is owned by the UI layer.
+func (m *Model) applyUIMode(workbench bool) {
+	m.workbenchMode = workbench
+	m.input.Placeholder = workbenchPlaceholder(i18n.CurrentLang(), workbench)
+	m.dirty = true
+	m.followBottom = true
+	m.scrollOffset = m.bottomScrollOffset()
 }
 
 // SetAudit 设置审计回调；传 nil 可关闭审计。
@@ -713,12 +746,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "error: " + msg.err.Error()
 
 	case tea.MouseMsg:
-		if msg.Action == tea.MouseActionPress {
-			m.handleMouseWheel(msg)
-			if (msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown) &&
-				(m.commandPaletteOpen || m.mouseWheelPanelOpen()) {
-				skipInputUpdate = true
+		if msg.Action == tea.MouseActionPress && (msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown) {
+			if m.commandPaletteOpen || m.mouseWheelPanelOpen() {
+				// Command palette and list-like panels keep their own wheel
+				// handling (cursor movement).
+				m.handleMouseWheel(msg)
+			} else {
+				// Main viewport: route wheel events straight to virtual
+				// scrolling and never feed them through the textarea.
+				m.scrollByViewportMsg(msg)
 			}
+			skipInputUpdate = true
 		}
 
 	case tea.KeyMsg:
@@ -1081,11 +1119,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case "ctrl+e":
 				cmds = append(cmds, m.editCmd())
-			case "ctrl+j":
+			case "alt+enter", "shift+enter", "ctrl+j":
+				// Alt+Enter and Shift+Enter insert a newline; Ctrl+J remains the
+				// terminal-friendly alternative. Skip textarea.Update afterwards so
+				// these keys are not interpreted as a submit or an extra newline.
 				m.input.InsertString("\n")
+				skipInputUpdate = true
+				m.syncInputHeight()
+				m.applyLayout()
 			case "enter":
-				// Enter 是提交键；Ctrl+J 才是插入换行。这里跳过后续 textarea.Update，
-				// 避免清空后又被 textarea 插入一个多余的新行。
+				// Enter 是提交键；Alt+Enter/Shift+Enter/Ctrl+J 才是插入换行。
+				// 这里跳过后续 textarea.Update，避免清空后又被 textarea 插入一个多余的新行。
 				skipInputUpdate = true
 				text := strings.TrimSpace(m.input.Value())
 				if text == "" {

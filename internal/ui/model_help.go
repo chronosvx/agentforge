@@ -82,13 +82,31 @@ func (m *Model) handleHelpKey(key string) bool {
 	return false
 }
 
+// helpKeySendText returns mode-aware copy for the Enter submit shortcut.
+func (m *Model) helpKeySendText() string {
+	if m.workbenchMode {
+		if i18n.CurrentLang() == i18n.LangEN {
+			return "Enter run task/command"
+		}
+		return "Enter 执行任务/命令"
+	}
+	return helpText("help.key_send")
+}
+
+// helpKeyNewlineText returns copy covering Alt+Enter, Shift+Enter and Ctrl+J.
+func (m *Model) helpKeyNewlineText() string {
+	if i18n.CurrentLang() == i18n.LangEN {
+		return "Alt+Enter / Shift+Enter / Ctrl+J newline"
+	}
+	return "Alt+Enter / Shift+Enter / Ctrl+J 换行"
+}
+
 // helpLines 生成帮助面板内容行。
 func (m *Model) helpLines() []string {
 	var lines []string
 	lines = append(lines, helpText("help.title"), "", helpText("help.shortcuts_title"))
+	lines = append(lines, m.helpKeySendText(), m.helpKeyNewlineText())
 	for _, key := range []string{
-		"help.key_send",
-		"help.key_newline",
 		"help.key_edit",
 		"help.key_palette",
 		"help.key_help",

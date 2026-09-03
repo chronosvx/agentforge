@@ -28,6 +28,10 @@ func (m *Model) viewportHeight() int {
 
 // renderMessage 渲染单条消息为带样式的文本。
 func (m *Model) renderMessage(msg client.Message) string {
+	if m.workbenchMode {
+		return m.renderWorkbenchMessage(msg)
+	}
+
 	role := msg.Role
 	if role == "" {
 		role = "unknown"
@@ -43,11 +47,51 @@ func (m *Model) renderMessage(msg client.Message) string {
 	return header + "\n" + body + "\n\n"
 }
 
+// renderWorkbenchMessage renders messages as task-workbench rows instead of
+// chat bubbles: user messages are Task rows and assistant replies are results.
+func (m *Model) renderWorkbenchMessage(msg client.Message) string {
+	role := msg.Role
+	label := "Task"
+	color := "5" // magenta
+	if role == "assistant" {
+		label = "Result"
+		color = "2" // green
+	} else if role == "tool" || role == "function" {
+		label = "Step"
+		color = "6" // cyan
+	}
+	header := lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Bold(true).Render("▸ " + label)
+	body := lipgloss.NewStyle().Padding(0, 0, 0, 2).Render(markdown.Render(msg.Content))
+	return header + "\n" + body + "\n\n"
+}
+
 // renderToolsBlock 渲染消息区底部的工具调用摘要。
 func (m *Model) renderToolsBlock() string {
 	if len(m.tools) == 0 {
 		return ""
 	}
+
+	if m.workbenchMode {
+		var b strings.Builder
+		b.WriteString("\n— Steps —\n")
+		for i, raw := range m.tools {
+			item, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			typ, _ := item["type"].(string)
+			name, _ := item["name"].(string)
+			args, _ := item["arguments"].(string)
+			result, _ := item["result"].(string)
+			if typ == "call" {
+				b.WriteString(fmt.Sprintf("Step %d: %s %s\n", i+1, sanitizeTerminalText(name), sanitizeTerminalText(args)))
+			} else {
+				b.WriteString(fmt.Sprintf("Step %d: %s\n", i+1, sanitizeTerminalText(result)))
+			}
+		}
+		return b.String()
+	}
+
 	var b strings.Builder
 	b.WriteString("\n— Tools —\n")
 	for i, raw := range m.tools {

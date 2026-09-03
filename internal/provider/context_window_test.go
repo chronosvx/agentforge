@@ -14,6 +14,10 @@ func TestDefaultModelRegistryHasCommonModels(t *testing.T) {
 	}{
 		{name: "DeepSeek-chat", wantContext: 64 * 1024, wantMaxOut: 8 * 1024, wantTools: true, wantStream: true},
 		{name: "deepseek-reasoner", wantContext: 64 * 1024, wantMaxOut: 8 * 1024, wantTools: true, wantStream: true},
+		{name: "deepseek-v4-flash", wantContext: 1_000_000, wantMaxOut: 128_000, wantTools: true, wantStream: true},
+		{name: "deepseek-v4-pro", wantContext: 1_000_000, wantMaxOut: 128_000, wantTools: true, wantStream: true},
+		{name: "deepseek-v4-vision", wantContext: 1_000_000, wantMaxOut: 128_000, wantTools: true, wantStream: true},
+		{name: "deepseek-v4-flash-vision-exp", wantContext: 1_000_000, wantMaxOut: 128_000, wantTools: true, wantStream: true},
 		{name: "gpt-4o", wantContext: 128 * 1024, wantMaxOut: 16 * 1024, wantTools: true, wantStream: true},
 		{name: "gpt-4o-mini", wantContext: 128 * 1024, wantMaxOut: 16 * 1024, wantTools: true, wantStream: true},
 		{name: "kimi-k2", wantContext: 128 * 1024, wantMaxOut: 32 * 1024, wantTools: true, wantStream: true},

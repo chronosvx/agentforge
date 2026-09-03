@@ -22,7 +22,7 @@ func (m *Model) mouseWheelPanelOpen() bool {
 }
 
 // handleMouseWheel 处理滚轮事件：命令面板和可滚动列表中用滚轮移动光标。
-// viewport 自身的滚轮滚动仍由后续 viewport.Update 处理。
+// 主 viewport 的滚轮滚动由 Update 直接调用 scrollByViewportMsg 处理。
 func (m *Model) handleMouseWheel(msg tea.MouseMsg) {
 	if msg.Button != tea.MouseButtonWheelUp && msg.Button != tea.MouseButtonWheelDown {
 		return

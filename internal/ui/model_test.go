@@ -1626,13 +1626,13 @@ func TestNewPlaceholderUsesLanguage(t *testing.T) {
 	t.Cleanup(func() { i18n.SetLang(i18n.LangZH) })
 
 	m := New(&config.Config{DataDir: dir, Lang: "zh"}, &fakeBackend{}, nil)
-	if !strings.Contains(m.input.Placeholder, "输入消息") {
-		t.Fatalf("zh placeholder = %q, want Chinese text", m.input.Placeholder)
+	if !strings.Contains(m.input.Placeholder, "输入任务或命令") {
+		t.Fatalf("zh placeholder = %q, want workbench Chinese text", m.input.Placeholder)
 	}
 
 	m = New(&config.Config{DataDir: dir, Lang: "en"}, &fakeBackend{}, nil)
-	if !strings.Contains(m.input.Placeholder, "Type a message") {
-		t.Fatalf("en placeholder = %q, want English text", m.input.Placeholder)
+	if !strings.Contains(m.input.Placeholder, "Enter a task or command") {
+		t.Fatalf("en placeholder = %q, want workbench English text", m.input.Placeholder)
 	}
 }
 

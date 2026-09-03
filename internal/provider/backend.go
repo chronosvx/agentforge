@@ -842,7 +842,7 @@ func defaultModel(name string) string {
 	case "openai":
 		return "gpt-4o-mini"
 	case "deepseek":
-		return "deepseek-chat"
+		return "deepseek-v4-flash"
 	case "moonshot":
 		return "moonshot-v1-8k"
 	case "kimi":

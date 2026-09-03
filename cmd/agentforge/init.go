@@ -18,7 +18,7 @@ import (
 func runInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	provider := fs.String("provider", "", "直连厂商名：deepseek/openai/moonshot/qwen/ollama")
-	model := fs.String("model", "", "模型名")
+	model := fs.String("model", "", "模型名（DeepSeek 默认 deepseek-v4-flash，可选 deepseek-v4-pro / deepseek-v4-vision / deepseek-v4-flash-vision-exp）")
 	baseURL := fs.String("base-url", "", "OpenAI 兼容 Base URL（可选）")
 	apiURL := fs.String("api-url", "", "DSH Web API 地址（可选）")
 	apiToken := fs.String("api-token", "", "DSH Web API Token（可选）")
