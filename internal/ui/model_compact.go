@@ -1,16 +1,17 @@
 package ui
 
 import (
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/chronosvx/agentforge/internal/client"
 	"github.com/chronosvx/agentforge/internal/contextx"
 	"github.com/chronosvx/agentforge/internal/i18n"
 )
 
 // handleCompactCommand 压缩当前会话中除最后一条外的旧消息为一条 system 摘要。
-func (m *Model) handleCompactCommand() {
+func (m *Model) handleCompactCommand() tea.Cmd {
 	if len(m.messages) <= 1 {
 		m.status = i18n.T("status.compact_empty")
-		return
+		return nil
 	}
 
 	old := m.messages[:len(m.messages)-1]
@@ -26,4 +27,5 @@ func (m *Model) handleCompactCommand() {
 	m.syncWindowFromMessages()
 	m.persist()
 	m.status = i18n.T("status.compacted", len(old))
+	return m.syncHistoryCmd("compact")
 }

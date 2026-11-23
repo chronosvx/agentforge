@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/chronosvx/agentforge/internal/client"
 	"github.com/chronosvx/agentforge/internal/contextx"
 )
@@ -33,12 +34,12 @@ func (m *Model) handleCheckpointCommand(cmd string) {
 	m.status = "checkpoint saved: " + name
 }
 
-// handleRewindCommand 处理 /rewind 命令。
-func (m *Model) handleRewindCommand(cmd string) {
+// handleRewindCommand 处理 /rewind 命令，返回把新上下文同步给后端的命令。
+func (m *Model) handleRewindCommand(cmd string) tea.Cmd {
 	name := strings.TrimSpace(strings.TrimPrefix(cmd, "/rewind"))
 	if name == "" {
 		m.status = "usage: /rewind <name>"
-		return
+		return nil
 	}
 	if m.checkpoints != nil {
 		if cp, err := m.checkpoints.Load(name); err == nil {
@@ -51,7 +52,7 @@ func (m *Model) handleRewindCommand(cmd string) {
 			m.window.Rewind(cp)
 			m.persist()
 			m.status = "rewound to checkpoint: " + name
-			return
+			return m.syncHistoryCmd("rewind")
 		}
 	}
 	if m.timeline == nil {
@@ -60,12 +61,12 @@ func (m *Model) handleRewindCommand(cmd string) {
 	snap, err := m.timeline.Rewind(name)
 	if err != nil {
 		m.status = "rewind error: " + err.Error()
-		return
+		return nil
 	}
 	var msgs []client.Message
 	if err := json.Unmarshal(snap.Data, &msgs); err != nil {
 		m.status = "rewind error: " + err.Error()
-		return
+		return nil
 	}
 	m.messages = msgs
 	m.dirty = true
@@ -76,6 +77,7 @@ func (m *Model) handleRewindCommand(cmd string) {
 	m.window.Rewind(contextx.Checkpoint{ID: name, Messages: msgs})
 	m.persist()
 	m.status = "rewound to timeline: " + name
+	return m.syncHistoryCmd("rewind")
 }
 
 // handleTimelineCommand 处理 /timeline 命令。

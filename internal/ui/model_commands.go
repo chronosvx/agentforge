@@ -336,7 +336,7 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 		if strings.TrimSpace(strings.TrimPrefix(cmd, "/rewind")) == "" {
 			m.openRewind()
 		} else {
-			m.handleRewindCommand(cmd)
+			return m.handleRewindCommand(cmd)
 		}
 	case "/mcp":
 		url := strings.TrimSpace(strings.TrimPrefix(cmd, "/mcp"))
@@ -519,7 +519,7 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 			m.status = "already in task workbench mode"
 		}
 	case "/compact":
-		m.handleCompactCommand()
+		return m.handleCompactCommand()
 	case "/image":
 		return m.handleImageCommand(cmd)
 	case "/exec":
@@ -574,6 +574,8 @@ func (m *Model) handleCommand(cmd string) tea.Cmd {
 		m.dirty = true
 		m.followBottom = true
 		m.status = i18n.T("status.cleared")
+		m.persist()
+		return m.syncHistoryCmd("clear")
 	case "/theme":
 		themeArg := ""
 		if len(fields) > 1 {
@@ -776,6 +778,10 @@ func (m *Model) handleImageCommand(cmd string) tea.Cmd {
 		return nil
 	} else if info.IsDir() {
 		m.status = "image path is a directory: " + path
+		return nil
+	}
+	if capability, ok := m.cl.(ImageCapability); ok && !capability.SupportsImages() {
+		m.status = "current backend does not support image input"
 		return nil
 	}
 

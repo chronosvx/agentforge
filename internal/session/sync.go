@@ -14,9 +14,35 @@ import (
 	"strings"
 )
 
-// ExportAll 将 dir 中的全部会话导出为 JSON 文件到 outDir。
+// ExportReport 汇总一次批量导出的结果，区分明文/加密与跳过/失败。
+type ExportReport struct {
+	Paths     []string
+	Plaintext int
+	Encrypted int
+	Skipped   []string
+	Failed    []string
+}
+
+// ImportReport 汇总一次批量导入的结果。
+type ImportReport struct {
+	Imported []string
+	Skipped  []string
+	Failed   []string
+}
+
+// ExportAll 将 dir 中的全部会话导出为 JSON/加密文件到 outDir。
 // 返回每个导出文件的路径。
 func ExportAll(dir, outDir string) ([]string, error) {
+	report, err := ExportAllWithReport(dir, outDir)
+	if err != nil {
+		return nil, err
+	}
+	return report.Paths, nil
+}
+
+// ExportAllWithReport 导出明文 <id>.json 与加密 <id>.json.enc 会话。
+// 加密文件按密文原样复制，不需要主密钥；同一 ID 两种格式同时存在时优先加密文件。
+func ExportAllWithReport(dir, outDir string) (*ExportReport, error) {
 	if dir == "" {
 		return nil, errors.New("session: export source dir is empty")
 	}
@@ -28,38 +54,121 @@ func ExportAll(dir, outDir string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	entries, err := readSessionsDir(sessionsDir)
-	if err != nil {
-		return nil, err
+	files, err := os.ReadDir(sessionsDir)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("session: read sessions dir: %w", err)
 	}
 	if err := os.MkdirAll(outDir, 0o700); err != nil {
 		return nil, fmt.Errorf("session: create export dir: %w", err)
 	}
 
-	paths := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if err := validateID(entry.ID); err != nil {
-			return nil, fmt.Errorf("session: export invalid id %q: %w", entry.ID, err)
+	type candidate struct {
+		encrypted string
+		plain     string
+	}
+	candidates := make(map[string]*candidate)
+	report := &ExportReport{}
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		name := file.Name()
+		switch {
+		case strings.HasSuffix(name, ".json.enc"):
+			id := strings.TrimSuffix(name, ".json.enc")
+			c := candidates[id]
+			if c == nil {
+				c = &candidate{}
+				candidates[id] = c
+			}
+			c.encrypted = filepath.Join(sessionsDir, name)
+		case strings.HasSuffix(name, ".json"):
+			id := strings.TrimSuffix(name, ".json")
+			c := candidates[id]
+			if c == nil {
+				c = &candidate{}
+				candidates[id] = c
+			}
+			c.plain = filepath.Join(sessionsDir, name)
+		}
+	}
+
+	ids := make([]string, 0, len(candidates))
+	for id := range candidates {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	for _, id := range ids {
+		if err := validateID(id); err != nil {
+			report.Failed = append(report.Failed, fmt.Sprintf("%s: invalid id", id))
+			continue
+		}
+		c := candidates[id]
+		if c.encrypted != "" {
+			data, err := os.ReadFile(c.encrypted)
+			if err != nil {
+				report.Failed = append(report.Failed, fmt.Sprintf("%s: %v", id, err))
+				continue
+			}
+			path := filepath.Join(outDir, id+".json.enc")
+			if err := writeFileAtomic(outDir, filepath.Base(path), data, 0o600); err != nil {
+				report.Failed = append(report.Failed, fmt.Sprintf("%s: %v", id, err))
+				continue
+			}
+			report.Paths = append(report.Paths, path)
+			report.Encrypted++
+			if c.plain != "" {
+				report.Skipped = append(report.Skipped, fmt.Sprintf("%s.json: duplicate of encrypted session %s", id, id))
+			}
+			continue
+		}
+
+		entry, err := readEntryFile(c.plain, id)
+		if err != nil {
+			report.Failed = append(report.Failed, fmt.Sprintf("%s: %v", id, err))
+			continue
 		}
 		data, err := json.MarshalIndent(entry, "", "  ")
 		if err != nil {
-			return nil, fmt.Errorf("session: encode %s: %w", entry.ID, err)
+			report.Failed = append(report.Failed, fmt.Sprintf("%s: %v", id, err))
+			continue
 		}
 		data = append(data, '\n')
-
-		path := filepath.Join(outDir, entry.ID+".json")
-		if err := os.WriteFile(path, data, 0o600); err != nil {
-			return nil, fmt.Errorf("session: write export %s: %w", path, err)
+		path := filepath.Join(outDir, id+".json")
+		if err := writeFileAtomic(outDir, filepath.Base(path), data, 0o600); err != nil {
+			report.Failed = append(report.Failed, fmt.Sprintf("%s: %v", id, err))
+			continue
 		}
-		paths = append(paths, path)
+		report.Paths = append(report.Paths, path)
+		report.Plaintext++
 	}
 
-	return paths, nil
+	return report, nil
 }
 
-// ImportAll 从 inDir 导入 JSON 会话到 dataDir 的 sessions/ 目录。
+// ImportAll 从 inDir 导入会话到 dataDir 的 sessions/ 目录。
 // 已存在的会话 ID 不会被覆盖，而是记录为跳过；返回每个文件的处理结果。
 func ImportAll(inDir, dataDir string) ([]string, error) {
+	report, err := ImportAllWithReport(inDir, dataDir)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]string, 0, len(report.Imported)+len(report.Skipped)+len(report.Failed))
+	for _, item := range report.Imported {
+		results = append(results, "imported "+item)
+	}
+	for _, item := range report.Skipped {
+		results = append(results, "skip "+item)
+	}
+	for _, item := range report.Failed {
+		results = append(results, "failed "+item)
+	}
+	return results, nil
+}
+
+// ImportAllWithReport 导入明文与加密会话；同 ID 双格式时优先加密文件。
+func ImportAllWithReport(inDir, dataDir string) (*ImportReport, error) {
 	if inDir == "" {
 		return nil, errors.New("session: import source dir is empty")
 	}
@@ -80,46 +189,145 @@ func ImportAll(inDir, dataDir string) ([]string, error) {
 		return nil, fmt.Errorf("session: read import dir: %w", err)
 	}
 
-	results := make([]string, 0)
+	type candidate struct {
+		encrypted string
+		plain     string
+	}
+	candidates := make(map[string]*candidate)
+	report := &ImportReport{}
 	for _, file := range files {
-		if file.IsDir() || !strings.HasSuffix(file.Name(), ".json") {
+		if file.IsDir() {
 			continue
 		}
-
 		name := file.Name()
-		path := filepath.Join(inDir, name)
-		data, err := os.ReadFile(path)
-		if err != nil {
-			results = append(results, fmt.Sprintf("skip %s: %v", name, err))
-			continue
+		switch {
+		case strings.HasSuffix(name, ".json.enc"):
+			id := strings.TrimSuffix(name, ".json.enc")
+			c := candidates[id]
+			if c == nil {
+				c = &candidate{}
+				candidates[id] = c
+			}
+			c.encrypted = filepath.Join(inDir, name)
+		case strings.HasSuffix(name, ".json"):
+			id := strings.TrimSuffix(name, ".json")
+			c := candidates[id]
+			if c == nil {
+				c = &candidate{}
+				candidates[id] = c
+			}
+			c.plain = filepath.Join(inDir, name)
 		}
-
-		var entry Entry
-		if err := json.Unmarshal(data, &entry); err != nil {
-			results = append(results, fmt.Sprintf("skip %s: invalid JSON", name))
-			continue
-		}
-		if entry.ID == "" {
-			entry.ID = strings.TrimSuffix(name, ".json")
-		}
-		if err := validateID(entry.ID); err != nil {
-			results = append(results, fmt.Sprintf("skip %s: invalid id %q", name, entry.ID))
-			continue
-		}
-
-		target := filepath.Join(sessionsDir, entry.ID+".json")
-		if _, err := os.Stat(target); err == nil {
-			results = append(results, fmt.Sprintf("skip %s: %s already exists", name, entry.ID))
-			continue
-		}
-
-		if err := writeSession(sessionsDir, entry); err != nil {
-			return nil, fmt.Errorf("session: import %s: %w", entry.ID, err)
-		}
-		results = append(results, fmt.Sprintf("imported %s", entry.ID))
 	}
 
-	return results, nil
+	ids := make([]string, 0, len(candidates))
+	for id := range candidates {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	for _, name := range ids {
+		if err := validateID(name); err != nil {
+			report.Failed = append(report.Failed, fmt.Sprintf("%s: invalid id", name))
+			continue
+		}
+		c := candidates[name]
+
+		if c.encrypted != "" {
+			if targetExists(sessionsDir, name) {
+				report.Skipped = append(report.Skipped, fmt.Sprintf("%s: already exists", name))
+				if c.plain != "" {
+					report.Skipped = append(report.Skipped, fmt.Sprintf("%s.json: duplicate of encrypted session %s", name, name))
+				}
+				continue
+			}
+			data, err := os.ReadFile(c.encrypted)
+			if err != nil {
+				report.Failed = append(report.Failed, fmt.Sprintf("%s: %v", name, err))
+				continue
+			}
+			if err := writeFileAtomic(sessionsDir, name+".json.enc", data, 0o600); err != nil {
+				report.Failed = append(report.Failed, fmt.Sprintf("%s: %v", name, err))
+				continue
+			}
+			report.Imported = append(report.Imported, name+" (encrypted)")
+			if c.plain != "" {
+				report.Skipped = append(report.Skipped, fmt.Sprintf("%s.json: duplicate of encrypted session %s", name, name))
+			}
+			continue
+		}
+
+		entry, err := readEntryFile(c.plain, name)
+		if err != nil {
+			report.Failed = append(report.Failed, fmt.Sprintf("%s: %v", name, err))
+			continue
+		}
+		if err := validateID(entry.ID); err != nil {
+			report.Failed = append(report.Failed, fmt.Sprintf("%s: invalid id %q", name, entry.ID))
+			continue
+		}
+		if targetExists(sessionsDir, entry.ID) {
+			report.Skipped = append(report.Skipped, fmt.Sprintf("%s: %s already exists", name, entry.ID))
+			continue
+		}
+		if err := writeSession(sessionsDir, entry); err != nil {
+			report.Failed = append(report.Failed, fmt.Sprintf("%s: %v", entry.ID, err))
+			continue
+		}
+		report.Imported = append(report.Imported, entry.ID)
+	}
+
+	return report, nil
+}
+
+func targetExists(sessionsDir, id string) bool {
+	if _, err := os.Stat(filepath.Join(sessionsDir, id+".json")); err == nil {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(sessionsDir, id+".json.enc")); err == nil {
+		return true
+	}
+	return false
+}
+
+func readEntryFile(path, fallbackID string) (Entry, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Entry{}, err
+	}
+	var entry Entry
+	if err := json.Unmarshal(data, &entry); err != nil {
+		return Entry{}, fmt.Errorf("invalid JSON")
+	}
+	if entry.ID == "" {
+		entry.ID = fallbackID
+	}
+	return entry, nil
+}
+
+func writeFileAtomic(dir, name string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(dir, ".tmp-"+name+"-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpName, perm); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, filepath.Join(dir, name))
 }
 
 // SyncDir 在 srcDir 与 dstDir 之间按 UpdatedAt 做双向同步：

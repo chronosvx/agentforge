@@ -53,6 +53,53 @@ func TestCompactCommandSummarizesOldMessagesAndKeepsLast(t *testing.T) {
 	}
 }
 
+func TestCompactCommandSyncsHistoryToBackend(t *testing.T) {
+	fb := &fakeBackend{}
+	m := Model{
+		cl:        fb,
+		channelID: "ch-1",
+		messages: []client.Message{
+			{Role: "user", Content: "first question"},
+			{Role: "assistant", Content: "first answer"},
+			{Role: "user", Content: "second question"},
+		},
+	}
+
+	cmd := m.handleCommand("/compact")
+	if cmd == nil {
+		t.Fatal("expected context sync command after /compact")
+	}
+	if msg, ok := cmd().(historySyncedMsg); !ok || msg.err != nil {
+		t.Fatalf("sync result = %#v, want successful historySyncedMsg", msg)
+	}
+	if len(fb.synced) != 1 {
+		t.Fatalf("backend sync calls = %d, want 1", len(fb.synced))
+	}
+	if len(fb.synced[0]) != 2 || fb.synced[0][0].Role != "system" {
+		t.Fatalf("synced messages = %#v, want compacted system+newest", fb.synced[0])
+	}
+}
+
+func TestClearCommandSyncsEmptyHistoryToBackend(t *testing.T) {
+	fb := &fakeBackend{}
+	m := Model{
+		cl:        fb,
+		channelID: "ch-1",
+		messages:  []client.Message{{Role: "user", Content: "hello"}},
+	}
+
+	cmd := m.handleCommand("/clear")
+	if cmd == nil {
+		t.Fatal("expected context sync command after /clear")
+	}
+	if msg, ok := cmd().(historySyncedMsg); !ok || msg.err != nil {
+		t.Fatalf("sync result = %#v, want successful historySyncedMsg", msg)
+	}
+	if len(fb.synced) != 1 || len(fb.synced[0]) != 0 {
+		t.Fatalf("synced messages = %#v, want empty history", fb.synced)
+	}
+}
+
 func TestCompactCommandEmptyMessages(t *testing.T) {
 	m := Model{}
 

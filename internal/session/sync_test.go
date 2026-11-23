@@ -155,6 +155,69 @@ func TestSyncDirAcceptsSessionsDirDirectly(t *testing.T) {
 	assertTitle(t, dstStore, "x", "from-src")
 }
 
+func TestExportImportEncryptedAndMixedSessions(t *testing.T) {
+	dataDir := t.TempDir()
+	encStore, err := session.NewEncryptedStore(dataDir, testEncryptionKey())
+	if err != nil {
+		t.Fatalf("new encrypted store: %v", err)
+	}
+	if err := encStore.Save(session.Entry{ID: "enc1", Title: "encrypted", UpdatedAt: time.Unix(200, 0)}); err != nil {
+		t.Fatalf("save encrypted: %v", err)
+	}
+	// 同一 ID 再写一份明文副本，以及一条纯明文会话。
+	writeTestJSON(t, filepath.Join(dataDir, "sessions", "enc1.json"), session.Entry{ID: "enc1", Title: "duplicate plaintext"})
+	writeTestJSON(t, filepath.Join(dataDir, "sessions", "plain1.json"), session.Entry{ID: "plain1", Title: "plaintext"})
+
+	outDir := filepath.Join(t.TempDir(), "exports")
+	report, err := session.ExportAllWithReport(dataDir, outDir)
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	if report.Encrypted != 1 || report.Plaintext != 1 {
+		t.Fatalf("export report = %+v, want 1 encrypted + 1 plaintext", report)
+	}
+	if len(report.Skipped) != 1 {
+		t.Fatalf("export skipped = %v, want one duplicate", report.Skipped)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "enc1.json.enc")); err != nil {
+		t.Fatalf("encrypted export missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "plain1.json")); err != nil {
+		t.Fatalf("plaintext export missing: %v", err)
+	}
+
+	targetDir := t.TempDir()
+	importReport, err := session.ImportAllWithReport(outDir, targetDir)
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if len(importReport.Imported) != 2 || len(importReport.Failed) != 0 {
+		t.Fatalf("import report = %+v, want 2 imported", importReport)
+	}
+	targetEnc, err := session.NewEncryptedStore(targetDir, testEncryptionKey())
+	if err != nil {
+		t.Fatalf("new target encrypted store: %v", err)
+	}
+	got, err := targetEnc.Load("enc1")
+	if err != nil {
+		t.Fatalf("load imported encrypted session: %v", err)
+	}
+	if got.Title != "encrypted" {
+		t.Fatalf("imported encrypted title = %q, want encrypted", got.Title)
+	}
+
+	// 目标已有加密文件时，再导入同 ID 明文应跳过。
+	dupDir := t.TempDir()
+	writeTestJSON(t, filepath.Join(dupDir, "enc1.json"), session.Entry{ID: "enc1", Title: "should not overwrite"})
+	dupReport, err := session.ImportAllWithReport(dupDir, targetDir)
+	if err != nil {
+		t.Fatalf("duplicate import: %v", err)
+	}
+	if len(dupReport.Imported) != 0 || len(dupReport.Skipped) != 1 {
+		t.Fatalf("duplicate import report = %+v, want one skipped", dupReport)
+	}
+}
+
 func writeTestJSON(t *testing.T, path string, entry session.Entry) {
 	t.Helper()
 	data, err := json.Marshal(entry)

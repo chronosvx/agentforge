@@ -55,6 +55,17 @@ type ModelSwitcher interface {
 	SetModel(string) error
 }
 
+// HistorySyncer 是可选接口：后端能在 /clear、/compact 或回退后替换会话历史，
+// 保证下一次模型请求与 UI 显示一致。不支持的后端会收到明确提示。
+type HistorySyncer interface {
+	SyncHistory(ctx context.Context, channelID string, messages []client.Message) error
+}
+
+// ImageCapability 是可选接口：后端能接收图片输入。
+type ImageCapability interface {
+	SupportsImages() bool
+}
+
 // sidebarWidth 是左侧会话工作区宽度。
 const sidebarWidth = 26
 
@@ -241,18 +252,19 @@ type Model struct {
 	execErr      error
 	execRunning  bool
 
-	diffCursor    int
-	diffDecisions map[int]string
-	pendingApply  bool
-	lastBackupDir string
-	applyFiles    []string
-	applyCursor   int
-	applySelected map[string]bool
-	skillCursor   int
-	skillDetail   bool
-	sessionEpoch  int
-	stopRequested bool
-	pendingNew    bool
+	diffCursor         int
+	diffDecisions      map[int]string
+	pendingApply       bool
+	lastBackupDir      string
+	applyFiles         []string
+	applyCursor        int
+	applySelected      map[string]bool
+	skillCursor        int
+	skillDetail        bool
+	sessionEpoch       int
+	stopRequested      bool
+	pendingNew         bool
+	historySyncPending bool
 
 	costLimit   float64
 	costAlerted bool
@@ -679,6 +691,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "sent"
 		m.persist()
 
+	case historySyncedMsg:
+		if msg.err != nil {
+			m.status = msg.action + " sync failed: " + msg.err.Error()
+		} else {
+			m.status = msg.action + ": context synced to backend"
+		}
+
 	case switchSessionMsg:
 		if m.eventCancel != nil {
 			m.eventCancel()
@@ -792,6 +811,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Batch(cmds...)
 				}
 				if m.handleRewindKey(key) {
+					if m.historySyncPending {
+						m.historySyncPending = false
+						cmds = append(cmds, m.syncHistoryCmd("rewind"))
+					}
 					return m, tea.Batch(cmds...)
 				}
 				return m, tea.Batch(cmds...)
@@ -1149,9 +1172,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.dirty = true
 				m.syncWindowFromMessages()
 				cmds = append(cmds, m.sendCmd(text))
-				if m.splitEnabled && m.splitSessionID != "" && m.splitSessionID != m.sessionID {
-					cmds = append(cmds, m.sendCmdTo(text, m.splitSessionID))
-				}
 			}
 		}
 	}
@@ -1469,6 +1489,26 @@ func (m Model) waitEventCmd() tea.Cmd {
 
 func (m Model) sendCmd(text string) tea.Cmd {
 	return m.sendCmdTo(text, m.channelID)
+}
+
+// syncHistoryCmd 把 UI 当前消息同步给支持上下文替换的后端。
+// 不支持时给出明确提示，避免 /clear、/compact、回退只改本地显示。
+func (m *Model) syncHistoryCmd(action string) tea.Cmd {
+	if m.cl == nil || m.channelID == "" {
+		return nil
+	}
+	syncer, ok := m.cl.(HistorySyncer)
+	if !ok {
+		m.status = action + ": backend does not support context sync; local view only"
+		return nil
+	}
+	channelID := m.channelID
+	messages := append([]client.Message(nil), m.messages...)
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return historySyncedMsg{action: action, err: syncer.SyncHistory(ctx, channelID, messages)}
+	}
 }
 
 func (m Model) sendCmdTo(text, channelID string) tea.Cmd {

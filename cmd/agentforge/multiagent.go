@@ -60,7 +60,7 @@ func runMultiAgent(args []string) error {
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("phase=%s diff=%d", res.Session.Phase, len(res.Diff)), nil
+		return fmt.Sprintf("phase=%s test=%s diff=%d", res.Session.Phase, res.TestStatus, len(res.Diff)), nil
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

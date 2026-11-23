@@ -63,19 +63,18 @@ cmd/agentforge/         Entry point (TUI / CLI)
 cmd/agentforge-smoke    DSH Web API smoke/acceptance tool
 internal/dshapi/        Real DSH Web API client and backend adapter
 internal/client/        DSH Channel WebSocket client (experimental/reserved)
-internal/session/       Session state and local persistence (incl. AsyncStore)
+internal/session/       Session state and local persistence (incl. AsyncStore, import/export)
 internal/agent/         Agent execution/approval state machine
+internal/agentflow/     Agent runner: plan -> approve -> execute -> test -> scoped diff -> commit
 internal/contextx/      Context windowing, summarization, Checkpoint/Rewind
 internal/mcp/           MCP Client: JSON-RPC 2.0, HTTP/SSE and stdio transports
-internal/persist/       Async persistence queue (Writer)
 internal/skill/         Skill local install, repo clone, remote manifest sync
-internal/provider/      Direct model providers: OpenAI-compatible client, proxy, routing/failover, pricing, context windows
-internal/offline/       Local JSON offline message queue
+internal/provider/      Direct model providers: OpenAI-compatible client, proxy, routing/failover, pricing, context windows, offline queue
 internal/security/      AES-GCM encryption, redaction, audit logging, secure API key storage (system keychain / encrypted file)
-internal/plugin/        Plugin marketplace/signature/permissions/sandbox
+internal/plugin/        Plugin marketplace/signature/permissions/restricted execution (no OS-level isolation)
 internal/cost/          Cost estimation and budget management
 internal/executor/      Local / Docker / SSH command execution
-internal/orchestrator/  Multi-agent orchestration
+internal/multiagent/    Multi-agent orchestration
 internal/memory/        Project memory / semantic search
 internal/ui/            Bubble Tea UI
 internal/i18n/          Lightweight i18n language packs (zh / en)
@@ -86,22 +85,25 @@ internal/update/        Automatic update checks (version compare + GitHub Releas
 
 ## Current Features
 
+Status labels: `[stable]` integrated into the main flow with tests; `[partial]` usable with explicit limits; `[example]` demo path only; `[experimental]` non-stable protocol; `[unfinished]` not wired up yet.
+
 The current feature set is focused on the terminal TUI/CLI client:
 
-- **DSH client and real API**: `internal/dshapi` connects to DSH Web API (HTTP RPC + WebSocket event stream) with seq resume, auto-reconnect, and real session recovery; `internal/client` keeps the experimental/reserved Channel WebSocket client.
-- **TUI workspace**: Bubble Tea chat interface, streaming rendering with virtual scrolling/incremental rendering, command palette, multiline input, `@` file references and autocomplete, multi-session tabs/split views, Context/Cost/Diff/Todo/Tools/Skills/Plugin panels, session search, full-text history search, input-history search (`Ctrl+R`), session overview (`/agentview`), rewind (`Esc` twice on an empty input), persistent HUD, `/clear`, `/status`, `/compact`, and the `/exec` panel.
-- **Custom keybindings**: global keybindings for help/palette/history can be customized via `<data-dir>/keybindings.json`.
-- **Provider direct connection**: `internal/provider` provides an OpenAI-compatible client, multiple API key rotation, routing/failover, error mapping, cost tables, and a model context window registry; supports HTTP/HTTPS/SOCKS5 proxies and a local offline queue.
-- **Agent and context engineering**: `internal/agent` (agent execution/approval state machine), `internal/contextx` (context windowing, summarization, Checkpoint/Rewind), `internal/mcp` (MCP client), and `internal/persist` / `session.AsyncStore` (async persistence); integrated into the UI via agent approval panels, `/checkpoint`, `/rewind`, `/mcp`, and `/mcp-call`.
-- **Multi-agent and execution**: `internal/orchestrator` multi-agent orchestration, `internal/memory` project memory/semantic search, `internal/executor` local/Docker/SSH execution, and `internal/plugin` governance (signature, permissions, sandbox, moderation).
-- **Plugin market CLI**: `agentforge market search/install/list` to search, install, and list plugin market entries.
-- **Doctor and no-color mode**: `agentforge doctor` checks the local environment and terminal compatibility; `--no-color` disables color/ANSI output for unsupported terminals or logs.
-- **i18n**: Chinese/English UI, switch with `--lang zh|en`, default Chinese.
-- **Local security**: AES-GCM encryption/decryption, sensitive data redaction, audit logs, and API key storage in system keychain or local encrypted files.
-- **Telemetry and updates**: optional local telemetry (JSON Lines, redacted, no network, off by default); automatic update checks (version compare + GitHub Release query, prompt only, no auto-download).
-- **Session import/export**: `export` / `import` support local batch migration and backup.
-- **Headless and remote execution**: `--headless --prompt` can drive Provider/DSH backends without the TUI and supports `--format text|json|stream-json`; `exec` uses `internal/executor` for local, Docker, and SSH commands.
-- **Release and installation**: multi-platform `make release`, `make package` for CLI install packages, Windows `scripts/install.ps1`, GitHub Actions CI, and fuzzing.
+- **DSH client and real API** `[stable]`: `internal/dshapi` connects to DSH Web API (HTTP RPC + WebSocket event stream) with seq resume, auto-reconnect, and real session recovery; `internal/client` keeps the experimental/reserved Channel WebSocket client `[experimental]`.
+- **TUI workspace** `[stable]`: Bubble Tea chat interface, streaming rendering with virtual scrolling/incremental rendering, command palette, multiline input, `@` file references and autocomplete, multi-session tabs/split views (side-by-side view, right pane read-only), Context/Cost/Diff/Todo/Tools/Skills/Plugin panels, session search, full-text history search, input-history search (`Ctrl+R`), session overview (`/agentview`), rewind (`Esc` twice on an empty input), persistent HUD, `/clear`, `/status`, `/compact`, and the `/exec` panel.
+- **Custom keybindings** `[stable]`: global keybindings for help/palette/history can be customized via `<data-dir>/keybindings.json`.
+- **Provider direct connection** `[stable]`: `internal/provider` provides an OpenAI-compatible client, multiple API key rotation, routing/failover, error mapping, cost tables, and a model context window registry; supports HTTP/HTTPS/SOCKS5 proxies and a local offline queue. Automatic Provider MCP tool loops are not wired up yet `[unfinished]`.
+- **Agent and context engineering** `[partial]`: `internal/agent` (execution/approval state machine), `internal/agentflow` (plan -> approve -> execute -> test -> scoped diff -> commit), `internal/contextx` (context windowing, summarization, Checkpoint/Rewind), `internal/mcp` (MCP client), and `session.AsyncStore` (async persistence). The TUI `/agent` panel is still an approval/state demo; use the CLI `agentforge agent` for real execution `[example]`.
+- **Multi-agent and execution** `[partial]`: `internal/multiagent` schedules tasks with dependencies, `internal/memory` provides project memory/semantic search, `internal/executor` runs local/Docker/SSH commands, and `internal/plugin` provides governance (signature, permissions, moderation, restricted execution). Workspace isolation, in-run cancellation, and persistent retries are not finished `[unfinished]`.
+- **Plugin market CLI** `[stable]`: `agentforge market search/install/list` to search, install, and list plugin market entries. External plugins run as local processes with your user privileges and have no OS-level isolation `[partial]`.
+- **Doctor and no-color mode** `[stable]`: `agentforge doctor` checks the local environment and terminal compatibility; `--no-color` disables color/ANSI output for unsupported terminals or logs.
+- **i18n** `[stable]`: Chinese/English UI, switch with `--lang zh|en`, default Chinese.
+- **Local security** `[stable]`: AES-GCM encryption/decryption, sensitive data redaction, audit logs, and API key storage in system keychain or local encrypted files.
+- **Telemetry and updates** `[stable]`: optional local telemetry (JSON Lines, redacted, no network, off by default); automatic update checks (version compare + GitHub Release query, prompt only, no auto-download).
+- **Project context** `[partial]`: `agentforge project-init` generates `AGENT.md`; the planning entry does not load it automatically yet `[unfinished]`.
+- **Session import/export** `[stable]`: `export` / `import` migrate plaintext and encrypted sessions and report skipped/failed counts.
+- **Headless and remote execution** `[stable]`: `--headless --prompt` can drive Provider/DSH backends without the TUI; `exec` uses `internal/executor` for local, Docker, and SSH commands.
+- **Release and installation** `[partial]`: multi-platform `make release`, `make package`, Windows install script, GitHub Actions CI, and fuzzing exist; real DSH, external models, and cross-platform release artifacts still need per-platform verification.
 
 UI details:
 
@@ -142,7 +144,7 @@ agentforge multiagent --tasks "run echo a,run echo b,run echo c" --yes
 agentforge agent --prompt "run echo hi" --yes --json
 agentforge multiagent --tasks "run echo a,run echo b" --yes --json
 
-# Dry run: preview the plan without executing anything
+# Dry run: preview the plan without approval, execution, or tests; cannot be combined with --commit/--push/--pr
 agentforge agent --prompt "add --version to main.go" --planner llm --dry-run
 
 # Connect to an MCP server
@@ -155,6 +157,8 @@ AGENTFORGE_PROVIDER_KEY=sk-xxx \
 ```
 
 > ⚠️ **Safety warning**: `--yes` auto-approves all agent actions. Combining it with `--commit`, `--push`, or `--pr` can create branches/commits, push to remotes, and open PRs without per-action confirmation. Only use it in trusted repositories or CI, and make sure the workspace is backed up or recoverable.
+
+Commit scope: the review diff and `--commit` only cover files changed by the task. Pre-existing staged/unstaged/untracked changes are reported separately and never committed; if the task modifies a file that was already dirty, automatic commit is refused. `--test ''` reports `skipped`, not passed.
 
 TUI multi-agent dependency tree / subtask tree:
 
@@ -181,7 +185,7 @@ Type a command in the input box and press Enter (except for `/image`, commands a
 | `/search <keyword>` | Filter the session list |
 | `/find <keyword>` | Full-text search history messages |
 | `/right` | Toggle the right Overview panel |
-| `/split` | Toggle the side-by-side dual-session view |
+| `/split` | Toggle the side-by-side dual-session view (right pane is read-only; press `s` to switch there before sending) |
 | `/model [model]` | Show the current model; switch models in provider direct mode |
 | `/new` | Create a new regular session |
 | `/export` | Export the current session as Markdown/JSON |
@@ -208,7 +212,7 @@ Type a command in the input box and press Enter (except for `/image`, commands a
 | `/forget <key>` | Delete a project memory entry |
 | `/memory [query]` | List or search project memory |
 | `/exec [command]` | Open the execution panel, or run a command directly |
-| `/image <image-path> [text...]` | Send a local image to a multimodal model (e.g. DeepSeek Vision); the provider reads the file and encodes it as a data URL |
+| `/image <image-path> [text...]` | Send a local image to a multimodal model; the image stays attached to that user message for follow-up turns. DSH Web API currently forwards text only |
 | `/multi <prompt1,prompt2,...>` or `/multi [{"id":"a","prompt":"...","deps":["b"]}]` | Prepare multi-agent tasks (JSON form supports dependencies) and open the panel; use `/multi-run` to execute |
 | `/multi-run` | Execute the multi-agent tasks prepared by `/multi` |
 | `/agents` | Toggle the multi-agent panel |
@@ -248,7 +252,7 @@ Shortcuts:
 | `Ctrl+→` | Switch to next session tab |
 | `1`~`4` in right Overview panel | Open Context / Cost / Diff / Todos detail panels |
 | `[` / `]` in split view | Switch the right session |
-| `s` in split view | Switch to right session and send a message |
+| `s` in split view | Switch to the right session (subsequent input goes there) |
 | `j` / `k` in Diff panel | Move Diff cursor up/down |
 | `a` / `r` in Diff panel | Accept / reject the current Diff |
 | `p` in Diff panel | Save accepted Diff as a patch file |
@@ -348,7 +352,7 @@ p := provider.NewOpenAI(provider.OpenAIConfig{
 
 ### Offline Queue
 
-`internal/offline.Queue` temporarily stores unsent messages in a local JSON file:
+`provider.Queue` temporarily stores unsent messages in a local JSON file (implemented in `internal/provider`):
 
 ```go
 q := offline.NewQueue("/path/to/data-dir/offline.json")

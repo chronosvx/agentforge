@@ -15,8 +15,8 @@ const maxImageFileSize = 20 * 1024 * 1024
 // ImagePart 表示一条消息中的一张图片。
 // DataURL 是完整的 data:image/...;base64,... URL；MediaType 仅作辅助信息。
 type ImagePart struct {
-	DataURL   string
-	MediaType string
+	DataURL   string `json:"data_url"`
+	MediaType string `json:"media_type,omitempty"`
 }
 
 // imageMediaTypes 支持通过扩展名推断的图片 MIME 类型。

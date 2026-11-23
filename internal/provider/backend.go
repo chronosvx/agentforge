@@ -29,16 +29,18 @@ type Backend struct {
 
 // sessionState 是 Provider Backend 中一个本地会话的运行时状态。
 type sessionState struct {
-	id            string
-	workspace     string
-	messages      []client.Message
+	id        string
+	workspace string
+	messages  []client.Message
+	// messageImages 与 messages 对齐，记录每条消息附带的图片。
+	// 图片只在当前进程内保留；重启后由离线队列按需恢复。
+	messageImages [][]ImagePart
 	context       map[string]any
 	cost          map[string]any
 	tokenUsage    map[string]any
 	seq           int64
 	streaming     bool
 	closed        bool
-	pendingImages []ImagePart
 	ctx           context.Context
 	cancel        context.CancelFunc
 	subs          map[chan client.Event]struct{}
@@ -130,6 +132,7 @@ func (b *Backend) Open(ctx context.Context, workspace, sessionID string, options
 				st.messages = append([]client.Message(nil), entry.Messages...)
 				st.context = cloneMap(entry.Context)
 				st.cost = cloneMap(entry.Cost)
+				st.messageImages = make([][]ImagePart, len(st.messages))
 			}
 		}
 		b.sessions[sessionID] = st
@@ -192,10 +195,7 @@ func (b *Backend) Invoke(ctx context.Context, channelID, method string, args []a
 	}
 
 	st.streaming = true
-	st.messages = append(st.messages, client.Message{Role: "user", Content: text})
-	if len(images) > 0 {
-		st.pendingImages = append([]ImagePart(nil), images...)
-	}
+	appendStateMessage(st, "user", text, images)
 	st.seq++
 	ev := client.Event{
 		Operation: "event",
@@ -273,9 +273,13 @@ func (b *Backend) sendOffline(ctx context.Context, item Item) error {
 
 	if item.Replay {
 		// 消息已存在于内存会话中，只重放流，不重复追加。
+		// 若进程重启后内存里没有附件，则按队列保存的图片恢复。
+		if len(item.Images) > 0 {
+			attachImagesToUserMessage(st, item.Message, item.Images)
+		}
 		st.streaming = true
 	} else {
-		st.messages = append(st.messages, client.Message{Role: "user", Content: item.Message})
+		appendStateMessage(st, "user", item.Message, item.Images)
 		st.seq++
 		ev := client.Event{
 			Operation: "event",
@@ -376,21 +380,19 @@ func (b *Backend) stream(st *sessionState, channelID, model string, fromOffline 
 	}()
 
 	b.mu.Lock()
+	ensureMessageImages(st)
 	msgs := make([]Message, 0, len(st.messages))
 	userText := ""
-	for _, m := range st.messages {
-		msgs = append(msgs, Message{Role: m.Role, Content: m.Content})
+	var userImages []ImagePart
+	for i, m := range st.messages {
+		msg := Message{Role: m.Role, Content: m.Content}
+		if i < len(st.messageImages) {
+			msg.Images = cloneImageParts(st.messageImages[i])
+		}
+		msgs = append(msgs, msg)
 		if m.Role == "user" {
 			userText = m.Content
-		}
-	}
-	pendingImages := append([]ImagePart(nil), st.pendingImages...)
-	if len(pendingImages) > 0 {
-		for i := len(msgs) - 1; i >= 0; i-- {
-			if msgs[i].Role == "user" {
-				msgs[i].Images = append([]ImagePart(nil), pendingImages...)
-				break
-			}
+			userImages = cloneImageParts(msg.Images)
 		}
 	}
 	streamCtx := st.ctx
@@ -407,14 +409,9 @@ func (b *Backend) stream(st *sessionState, channelID, model string, fromOffline 
 		Stream:   true,
 	})
 
-	// 无论发送成功或失败，本次 pendingImages 都已被消费，避免残留到下一次消息。
-	b.mu.Lock()
-	st.pendingImages = nil
-	b.mu.Unlock()
-
 	if err != nil {
 		if !fromOffline && offlineQueue != nil && userText != "" {
-			if enqueueErr := offlineQueue.EnqueueReplay(channelID, userText); enqueueErr != nil {
+			if enqueueErr := offlineQueue.EnqueueReplayWithImages(channelID, userText, userImages); enqueueErr != nil {
 				b.emitError(st, channelID, fmt.Errorf("provider backend: queue offline message: %w", enqueueErr))
 				return
 			}
@@ -435,7 +432,7 @@ func (b *Backend) stream(st *sessionState, channelID, model string, fromOffline 
 			b.emitUsage(st, channelID, ev.Usage)
 		case StreamEventError:
 			if !fromOffline && offlineQueue != nil && userText != "" {
-				if enqueueErr := offlineQueue.EnqueueReplay(channelID, userText); enqueueErr != nil {
+				if enqueueErr := offlineQueue.EnqueueReplayWithImages(channelID, userText, userImages); enqueueErr != nil {
 					b.emitError(st, channelID, fmt.Errorf("provider backend: queue offline message: %w", enqueueErr))
 					return
 				}
@@ -660,22 +657,97 @@ func (b *Backend) persist(channelID, workspace string, messages []client.Message
 	})
 }
 
+// SyncHistory 用给定消息替换后端会话历史。用于 /clear、/compact 和回退后
+// 让下一次模型请求与 UI 显示保持一致；会持久化新状态并广播一次快照。
+func (b *Backend) SyncHistory(ctx context.Context, channelID string, messages []client.Message) error {
+	b.mu.Lock()
+	st := b.sessions[channelID]
+	if st == nil {
+		b.mu.Unlock()
+		return fmt.Errorf("provider backend: session %q not open", channelID)
+	}
+	if st.streaming {
+		b.mu.Unlock()
+		return fmt.Errorf("provider backend: session %q is streaming; stop generation before syncing context", channelID)
+	}
+	st.messages = append([]client.Message(nil), messages...)
+	st.messageImages = make([][]ImagePart, len(st.messages))
+	st.seq++
+	ev := client.Event{
+		Operation: "event",
+		ChannelID: channelID,
+		Version:   st.seq,
+		State:     b.stateLocked(st),
+	}
+	b.broadcastLocked(ev, st)
+	workspace := st.workspace
+	persisted := append([]client.Message(nil), st.messages...)
+	contextMap := cloneMap(st.context)
+	costMap := cloneMap(st.cost)
+	b.mu.Unlock()
+
+	b.persist(channelID, workspace, persisted, contextMap, costMap)
+	return nil
+}
+
+// SupportsImages 报告 Provider 直连后端支持图片输入。
+func (b *Backend) SupportsImages() bool { return true }
+
+func ensureMessageImages(st *sessionState) {
+	for len(st.messageImages) < len(st.messages) {
+		st.messageImages = append(st.messageImages, nil)
+	}
+	if len(st.messageImages) > len(st.messages) {
+		st.messageImages = st.messageImages[:len(st.messages)]
+	}
+}
+
+func appendStateMessage(st *sessionState, role, content string, images []ImagePart) {
+	ensureMessageImages(st)
+	st.messages = append(st.messages, client.Message{Role: role, Content: content})
+	st.messageImages = append(st.messageImages, cloneImageParts(images))
+}
+
+func attachImagesToUserMessage(st *sessionState, content string, images []ImagePart) {
+	ensureMessageImages(st)
+	for i := len(st.messages) - 1; i >= 0; i-- {
+		if st.messages[i].Role != "user" || st.messages[i].Content != content {
+			continue
+		}
+		if len(st.messageImages[i]) == 0 {
+			st.messageImages[i] = cloneImageParts(images)
+		}
+		return
+	}
+}
+
+func cloneImageParts(in []ImagePart) []ImagePart {
+	if len(in) == 0 {
+		return nil
+	}
+	return append([]ImagePart(nil), in...)
+}
+
 func applyAssistantContentLocked(st *sessionState, content string) {
+	ensureMessageImages(st)
 	if n := len(st.messages); n > 0 && st.messages[n-1].Role == "assistant" {
 		st.messages[n-1].Content = content
 		return
 	}
 	st.messages = append(st.messages, client.Message{Role: "assistant", Content: content})
+	st.messageImages = append(st.messageImages, nil)
 }
 
 // applyAssistantDeltaLocked 只把流式增量追加到当前 assistant 消息末尾，
 // 避免每个 delta 都重放/复制整份会话状态。
 func applyAssistantDeltaLocked(st *sessionState, delta string) {
+	ensureMessageImages(st)
 	if n := len(st.messages); n > 0 && st.messages[n-1].Role == "assistant" {
 		st.messages[n-1].Content += delta
 		return
 	}
 	st.messages = append(st.messages, client.Message{Role: "assistant", Content: delta})
+	st.messageImages = append(st.messageImages, nil)
 }
 
 func messagesToAny(msgs []client.Message) []any {

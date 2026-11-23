@@ -36,6 +36,16 @@ type Request struct {
 	DryRun      bool
 }
 
+// TestStatus 描述测试阶段的实际状态，区分未运行、跳过、通过与失败。
+type TestStatus string
+
+const (
+	TestStatusNotRun  TestStatus = "not_run"
+	TestStatusSkipped TestStatus = "skipped"
+	TestStatusPassed  TestStatus = "passed"
+	TestStatusFailed  TestStatus = "failed"
+)
+
 // Result 是一次 Agent 主流程运行的输出。
 type Result struct {
 	Session    *agent.AgentSession
@@ -43,6 +53,18 @@ type Result struct {
 	Diff       string
 	TestOutput string
 	TestOK     bool
+	TestRan    bool
+	TestStatus TestStatus
+
+	// TaskPaths 是本任务实际改动的路径；PreExistingPaths 是运行前已存在且
+	// 未被任务改变的脏路径；ConflictedPaths 是运行前已脏、又被任务修改的路径。
+	TaskPaths        []string
+	PreExistingPaths []string
+	ConflictedPaths  []string
+	PreExistingDiff  string
+
+	// RepoRoot 是 Git 仓库根目录；非 Git 工作区为空。TaskPaths 均相对该目录。
+	RepoRoot string
 }
 
 // EventType 是 Agent 运行过程中对外发布的事件类型。
@@ -75,6 +97,7 @@ type Event struct {
 	Action     *ActionEvent  `json:"action,omitempty"`
 	TestOutput string        `json:"test_output,omitempty"`
 	TestOK     *bool         `json:"test_ok,omitempty"`
+	TestStatus string        `json:"test_status,omitempty"`
 	Diff       string        `json:"diff,omitempty"`
 	Error      string        `json:"error,omitempty"`
 }
@@ -167,10 +190,43 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 	session := agent.NewAgentSession(policy)
 	session.Plan(actions)
 
-	result := &Result{Session: session, Actions: append([]agent.Action(nil), actions...)}
+	result := &Result{
+		Session:    session,
+		Actions:    append([]agent.Action(nil), actions...),
+		TestStatus: TestStatusNotRun,
+	}
+	if repo.IsGit {
+		result.RepoRoot = repo.WorkDir
+	}
 	r.emit(Event{Type: EventPlan, Actions: actionEvents(actions)})
 
-	if req.TestCmd != "" && !req.DryRun {
+	// 预演只读取计划：不进入审批、不执行动作、不跑测试，也不触碰 Git 状态。
+	if req.DryRun {
+		for _, a := range actions {
+			if a.Type == agent.ActionTypeRunCommand {
+				if err := checkCommandSafety(a.Command); err != nil {
+					r.emit(Event{Type: EventError, Error: err.Error()})
+					return result, fmt.Errorf("agentflow: preview %s: %w", a.ID, err)
+				}
+			}
+		}
+		session.MarkPreview()
+		for _, a := range actions {
+			ev := actionEvent(a)
+			ev.Status = string(agent.ActionStatusPending)
+			r.emit(Event{Type: EventAction, Action: &ev})
+		}
+		r.emit(Event{Type: EventDone})
+		return result, nil
+	}
+
+	var baseline worktreeState
+	if repo.IsGit {
+		if state, err := captureWorktreeState(ctx, repo.WorkDir); err == nil {
+			baseline = state
+		}
+	}
+	if req.TestCmd != "" {
 		if err := checkCommandSafety(req.TestCmd); err != nil {
 			err = fmt.Errorf("agentflow: unsafe test command: %w", err)
 			r.emit(Event{Type: EventError, Error: err.Error()})
@@ -203,28 +259,7 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 				r.emit(Event{Type: EventError, Error: err.Error()})
 				return result, fmt.Errorf("agentflow: approve: %w", err)
 			}
-			a = session.NextPendingAction()
-			if a == nil {
-				break
-			}
-		}
-
-		if req.DryRun {
-			if a.Type == agent.ActionTypeRunCommand {
-				if err := checkCommandSafety(a.Command); err != nil {
-					r.emit(Event{Type: EventError, Error: err.Error()})
-					return result, fmt.Errorf("agentflow: execute %s: %w", a.ID, err)
-				}
-			}
-			output := "dry-run: " + a.Description
-			if err := session.MarkExecuted(a.ID, output); err != nil {
-				r.emit(Event{Type: EventError, Error: err.Error()})
-				return result, fmt.Errorf("agentflow: mark executed: %w", err)
-			}
-			ev := actionEvent(*a)
-			ev.Status = string(agent.ActionStatusExecuted)
-			ev.Output = output
-			r.emit(Event{Type: EventAction, Action: &ev})
+			// 重新进入循环，让下一个动作仍能经过自己的审批分支。
 			continue
 		}
 
@@ -234,12 +269,17 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 
 		output, execErr := r.executeAction(ctx, *a, abs, req.Timeout)
 		if execErr != nil {
-			_ = session.MarkExecuted(a.ID, output+"\n"+execErr.Error())
+			output = strings.TrimSpace(output + "\n" + execErr.Error())
+			if markErr := session.MarkFailed(a.ID, output); markErr != nil {
+				r.emit(Event{Type: EventError, Error: markErr.Error()})
+				return result, fmt.Errorf("agentflow: mark failed %s: %w", a.ID, markErr)
+			}
 			ev := actionEvent(*a)
-			ev.Status = string(agent.ActionStatusExecuted)
-			ev.Output = output + "\n" + execErr.Error()
+			ev.Status = string(agent.ActionStatusFailed)
+			ev.Output = output
 			r.emit(Event{Type: EventAction, Action: &ev})
 			r.emit(Event{Type: EventError, Error: execErr.Error()})
+			result.TestStatus = TestStatusNotRun
 			return result, fmt.Errorf("agentflow: execute %s: %w", a.ID, execErr)
 		}
 		if err := session.MarkExecuted(a.ID, output); err != nil {
@@ -253,8 +293,8 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 	}
 
 	// 有动作执行成功且配置了测试命令时，统一跑一次测试。
-	// 未配置测试命令时，视为测试通过，让闭环进入 Diff 评审阶段。
-	if len(actions) > 0 && req.TestCmd != "" && !req.DryRun {
+	// 未配置测试命令时，明确标记为 skipped，而不是把“未测试”当成“通过”。
+	if req.TestCmd != "" {
 		cmd := req.TestCmd
 		if err := checkCommandSafety(cmd); err != nil {
 			err = fmt.Errorf("agentflow: unsafe test command: %w", err)
@@ -268,7 +308,12 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 			Timeout: req.Timeout,
 		})
 		result.TestOutput = strings.TrimSpace(res.Stdout + "\n" + res.Stderr)
+		result.TestRan = true
 		result.TestOK = testErr == nil
+		result.TestStatus = TestStatusFailed
+		if result.TestOK {
+			result.TestStatus = TestStatusPassed
+		}
 		for i := range session.Actions {
 			a := &session.Actions[i]
 			if a.Status == agent.ActionStatusExecuted {
@@ -278,29 +323,40 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 				}
 			}
 		}
-		r.emit(Event{Type: EventTest, TestOutput: result.TestOutput, TestOK: &result.TestOK})
-	} else if len(actions) > 0 {
-		result.TestOK = true
-		for i := range session.Actions {
-			a := &session.Actions[i]
-			if a.Status == agent.ActionStatusExecuted {
-				_ = session.MarkTested(a.ID, true)
-			}
-		}
-		ok := true
-		r.emit(Event{Type: EventTest, TestOK: &ok})
+		r.emit(Event{Type: EventTest, TestOutput: result.TestOutput, TestOK: &result.TestOK, TestStatus: string(result.TestStatus)})
+	} else {
+		result.TestStatus = TestStatusSkipped
+		session.MarkReviewingDiff()
+		r.emit(Event{Type: EventTest, TestStatus: string(result.TestStatus)})
 	}
 
 	if repo.IsGit {
-		diff, diffErr := gitDiff(ctx, abs)
-		if diffErr == nil {
-			result.Diff = diff
-			session.SetDiff(diff)
-			r.emit(Event{Type: EventDiff, Diff: diff})
+		after, afterErr := captureWorktreeState(ctx, repo.WorkDir)
+		if afterErr == nil {
+			if baseline == nil {
+				// 运行前快照失败时不能安全归属改动：全部视为冲突，禁止自动提交。
+				baseline = worktreeState{}
+				for path := range after {
+					result.ConflictedPaths = append(result.ConflictedPaths, path)
+				}
+			}
+			taskPaths, preExisting, conflicted := splitWorktreeChanges(baseline, after)
+			result.TaskPaths = taskPaths
+			result.PreExistingPaths = preExisting
+			result.ConflictedPaths = mergeSorted(result.ConflictedPaths, conflicted)
+
+			if diff, err := worktreeDiff(ctx, repo.WorkDir, taskPaths, after); err == nil {
+				result.Diff = diff
+				session.SetDiff(diff)
+				r.emit(Event{Type: EventDiff, Diff: diff})
+			}
+			if diff, err := worktreeDiff(ctx, repo.WorkDir, preExisting, after); err == nil {
+				result.PreExistingDiff = diff
+			}
 		}
 	}
 
-	if req.TestCmd != "" && !result.TestOK {
+	if result.TestStatus == TestStatusFailed {
 		err := fmt.Errorf("agentflow: tests failed")
 		r.emit(Event{Type: EventError, Error: err.Error()})
 		return result, err
@@ -493,16 +549,6 @@ func applyDiff(ctx context.Context, workDir, diff string) (string, error) {
 		return "", fmt.Errorf("agentflow: git apply: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return "applied diff", nil
-}
-
-// gitDiff 返回工作区未暂存的 diff。
-func gitDiff(ctx context.Context, workDir string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", workDir, "diff")
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return string(out), nil
 }
 
 // detectRepo 检测目录是否在 Git 仓库内。

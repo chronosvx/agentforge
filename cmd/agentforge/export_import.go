@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/chronosvx/agentforge/internal/config"
 	"github.com/chronosvx/agentforge/internal/session"
-	"strings"
 )
 
 // runExport 实现 `agentforge export --out-dir <dir>`。
@@ -33,14 +32,28 @@ func runExport(args []string) error {
 		return err
 	}
 
-	paths, err := session.ExportAll(dir, out)
+	report, err := session.ExportAllWithReport(dir, out)
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("exported %d session(s) to %s\n", len(paths), out)
-	for _, path := range paths {
+	fmt.Printf("exported %d session(s) to %s (plaintext %d, encrypted %d)\n",
+		len(report.Paths), out, report.Plaintext, report.Encrypted)
+	for _, path := range report.Paths {
 		fmt.Println(path)
+	}
+	if len(report.Skipped) > 0 {
+		fmt.Printf("skipped %d:\n", len(report.Skipped))
+		for _, item := range report.Skipped {
+			fmt.Println("  " + item)
+		}
+	}
+	if len(report.Failed) > 0 {
+		fmt.Printf("failed %d:\n", len(report.Failed))
+		for _, item := range report.Failed {
+			fmt.Println("  " + item)
+		}
+		return fmt.Errorf("export: %d session(s) failed", len(report.Failed))
 	}
 	return nil
 }
@@ -69,20 +82,23 @@ func runImport(args []string) error {
 		return err
 	}
 
-	results, err := session.ImportAll(in, dir)
+	report, err := session.ImportAllWithReport(in, dir)
 	if err != nil {
 		return err
 	}
 
-	imported, skipped := 0, 0
-	for _, result := range results {
-		fmt.Println(result)
-		if strings.HasPrefix(result, "imported ") {
-			imported++
-		} else {
-			skipped++
-		}
+	for _, item := range report.Imported {
+		fmt.Println("imported " + item)
 	}
-	fmt.Printf("imported %d, skipped %d\n", imported, skipped)
+	for _, item := range report.Skipped {
+		fmt.Println("skip " + item)
+	}
+	for _, item := range report.Failed {
+		fmt.Println("failed " + item)
+	}
+	fmt.Printf("imported %d, skipped %d, failed %d\n", len(report.Imported), len(report.Skipped), len(report.Failed))
+	if len(report.Failed) > 0 {
+		return fmt.Errorf("import: %d item(s) failed", len(report.Failed))
+	}
 	return nil
 }

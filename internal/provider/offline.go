@@ -17,11 +17,12 @@ import (
 
 // Item 是队列中的一条待发送消息。
 type Item struct {
-	ID        string    `json:"id"`
-	SessionID string    `json:"session_id"`
-	Message   string    `json:"message"`
-	Replay    bool      `json:"replay"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string      `json:"id"`
+	SessionID string      `json:"session_id"`
+	Message   string      `json:"message"`
+	Images    []ImagePart `json:"images,omitempty"`
+	Replay    bool        `json:"replay"`
+	CreatedAt time.Time   `json:"created_at"`
 }
 
 // queueFile 是队列持久化文件的根结构。
@@ -42,16 +43,27 @@ func NewQueue(path string) *Queue {
 
 // Enqueue 追加一条消息到队列末尾。Replay 默认为 false。
 func (q *Queue) Enqueue(sessionID, message string) error {
-	return q.enqueue(sessionID, message, false)
+	return q.enqueue(sessionID, message, false, nil)
+}
+
+// EnqueueWithImages 追加一条带图片的消息。
+func (q *Queue) EnqueueWithImages(sessionID, message string, images []ImagePart) error {
+	return q.enqueue(sessionID, message, false, images)
 }
 
 // EnqueueReplay 追加一条已存在于内存会话中的重放消息。
 // Replay 为 true 时，FlushOffline 不会再次把该消息追加到会话。
 func (q *Queue) EnqueueReplay(sessionID, message string) error {
-	return q.enqueue(sessionID, message, true)
+	return q.enqueue(sessionID, message, true, nil)
 }
 
-func (q *Queue) enqueue(sessionID, message string, replay bool) error {
+// EnqueueReplayWithImages 追加一条带图片的重放消息；图片会持久化到队列，
+// 以便进程重启后仍能恢复附件。
+func (q *Queue) EnqueueReplayWithImages(sessionID, message string, images []ImagePart) error {
+	return q.enqueue(sessionID, message, true, images)
+}
+
+func (q *Queue) enqueue(sessionID, message string, replay bool, images []ImagePart) error {
 	if q == nil {
 		return fmt.Errorf("offline: nil queue")
 	}
@@ -67,6 +79,7 @@ func (q *Queue) enqueue(sessionID, message string, replay bool) error {
 		ID:        newID(),
 		SessionID: sessionID,
 		Message:   message,
+		Images:    cloneImageParts(images),
 		Replay:    replay,
 		CreatedAt: time.Now().UTC(),
 	})

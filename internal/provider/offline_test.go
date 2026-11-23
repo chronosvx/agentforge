@@ -134,6 +134,27 @@ func TestQueueEnqueueReplayPersistsReplay(t *testing.T) {
 	}
 }
 
+func TestQueueEnqueueReplayWithImagesPersistsAttachments(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "queue.json")
+	q := NewQueue(path)
+	images := []ImagePart{{DataURL: "data:image/png;base64,AAAA", MediaType: "image/png"}}
+	if err := q.EnqueueReplayWithImages("session-img", "look at this", images); err != nil {
+		t.Fatalf("EnqueueReplayWithImages error: %v", err)
+	}
+
+	// 重新打开队列，确认图片跨进程持久化。
+	items, err := NewQueue(path).Pending()
+	if err != nil {
+		t.Fatalf("Pending() error: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	if len(items[0].Images) != 1 || items[0].Images[0].DataURL != images[0].DataURL {
+		t.Fatalf("images = %#v, want persisted attachment", items[0].Images)
+	}
+}
+
 func TestQueueEmptyPending(t *testing.T) {
 	q := NewQueue(filepath.Join(t.TempDir(), "queue.json"))
 	items, err := q.Pending()

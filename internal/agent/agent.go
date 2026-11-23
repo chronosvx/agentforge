@@ -14,6 +14,7 @@ type Phase string
 
 const (
 	PhasePlanning         Phase = "Planning"
+	PhasePreview          Phase = "Preview"
 	PhaseAwaitingApproval Phase = "AwaitingApproval"
 	PhaseExecuting        Phase = "Executing"
 	PhaseTesting          Phase = "Testing"
@@ -26,6 +27,7 @@ const (
 // 简短别名，便于按领域名称引用。
 const (
 	Planning         Phase = PhasePlanning
+	Preview          Phase = PhasePreview
 	AwaitingApproval Phase = PhaseAwaitingApproval
 	Executing        Phase = PhaseExecuting
 	Testing          Phase = PhaseTesting
@@ -73,6 +75,7 @@ const (
 	ActionStatusApproved   ActionStatus = "approved"
 	ActionStatusRejected   ActionStatus = "rejected"
 	ActionStatusExecuted   ActionStatus = "executed"
+	ActionStatusFailed     ActionStatus = "failed"
 	ActionStatusTested     ActionStatus = "tested"
 	ActionStatusRolledBack ActionStatus = "rolled_back"
 )
@@ -291,6 +294,46 @@ func (s *AgentSession) MarkExecuted(id, output string) error {
 
 	s.refreshAfterActionLocked()
 	return nil
+}
+
+// MarkFailed 标记一个动作执行失败，并记录失败输出。会话进入 Failed。
+func (s *AgentSession) MarkFailed(id, output string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.Phase == PhaseDone || s.Phase == PhaseFailed || s.Phase == PhaseRollingBack {
+		return fmt.Errorf("agent: cannot mark failed in phase %s", s.Phase)
+	}
+
+	a := s.findActionLocked(id)
+	if a == nil {
+		return fmt.Errorf("agent: action %q not found", id)
+	}
+	if a.Status != ActionStatusPending && a.Status != ActionStatusApproved && a.Status != ActionStatusExecuted {
+		return fmt.Errorf("agent: action %q cannot be marked failed in status %s", id, a.Status)
+	}
+
+	a.Status = ActionStatusFailed
+	a.Output = output
+	s.Phase = PhaseFailed
+	return nil
+}
+
+// MarkPreview 将会话标记为预演阶段；动作保持 Pending，表示只读计划。
+func (s *AgentSession) MarkPreview() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Phase = PhasePreview
+}
+
+// MarkReviewingDiff 在跳过测试时把会话推进到 Diff 评审阶段。
+func (s *AgentSession) MarkReviewingDiff() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Phase == PhaseRollingBack || s.Phase == PhaseDone || s.Phase == PhaseFailed || s.Phase == PhasePreview {
+		return
+	}
+	s.Phase = PhaseReviewingDiff
 }
 
 // MarkTested 标记一个已执行动作的测试结果。

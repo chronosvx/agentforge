@@ -242,6 +242,78 @@ func TestCheckNoSecretFilesFindsEnv(t *testing.T) {
 	}
 }
 
+func TestCommitScopedPathsExcludesPreExistingChanges(t *testing.T) {
+	dir := initRepo(t)
+	branch := "feature/scoped-commit"
+
+	if err := gitflow.EnsureBranch(context.Background(), gitflow.Config{WorkDir: dir, Branch: branch}); err != nil {
+		t.Fatalf("EnsureBranch() error = %v", err)
+	}
+
+	// 预先存在的未跟踪文件和已暂存改动都不应进入本次提交。
+	if err := os.WriteFile(filepath.Join(dir, "pre-existing.txt"), []byte("keep me\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "staged.txt"), []byte("staged\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, dir, "git", "add", "staged.txt")
+
+	if err := os.WriteFile(filepath.Join(dir, "task.txt"), []byte("task change\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sha, err := gitflow.Commit(context.Background(), gitflow.Config{
+		WorkDir:   dir,
+		CommitMsg: "scoped commit",
+		Paths:     []string{"task.txt"},
+	})
+	if err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+	if sha == "" {
+		t.Fatal("Commit() SHA is empty")
+	}
+
+	committed := strings.TrimSpace(run(t, dir, "git", "show", "--pretty=format:", "--name-only", "HEAD"))
+	if committed != "task.txt" {
+		t.Fatalf("committed files = %q, want task.txt", committed)
+	}
+	status := run(t, dir, "git", "status", "--porcelain")
+	if !strings.Contains(status, "A  staged.txt") {
+		t.Fatalf("staged pre-existing change should remain staged, status:\n%s", status)
+	}
+	if !strings.Contains(status, "?? pre-existing.txt") {
+		t.Fatalf("untracked pre-existing file should remain untracked, status:\n%s", status)
+	}
+}
+
+func TestCommitScopedPathsOnInitialCommit(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "git", "init")
+	run(t, dir, "git", "config", "user.name", "Test User")
+	run(t, dir, "git", "config", "user.email", "test@example.com")
+	if err := os.WriteFile(filepath.Join(dir, "first.txt"), []byte("first\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sha, err := gitflow.Commit(context.Background(), gitflow.Config{
+		WorkDir:   dir,
+		CommitMsg: "root commit",
+		Paths:     []string{"first.txt"},
+	})
+	if err != nil {
+		t.Fatalf("Commit() on unborn branch error = %v", err)
+	}
+	if sha == "" {
+		t.Fatal("Commit() SHA is empty")
+	}
+	committed := strings.TrimSpace(run(t, dir, "git", "show", "--pretty=format:", "--name-only", "HEAD"))
+	if committed != "first.txt" {
+		t.Fatalf("committed files = %q, want first.txt", committed)
+	}
+}
+
 func TestCommitRefusesWhenEnvPresent(t *testing.T) {
 	dir := initRepo(t)
 	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("KEY=value\n"), 0o600); err != nil {

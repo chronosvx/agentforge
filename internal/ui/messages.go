@@ -78,6 +78,11 @@ type sentMsg struct {
 	text string
 }
 
+type historySyncedMsg struct {
+	action string
+	err    error
+}
+
 type switchSessionMsg struct {
 	id string
 }

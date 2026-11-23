@@ -49,7 +49,7 @@ func (m *Model) startMultiAgent(tasks []multiagent.Task) tea.Cmd {
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("phase=%s diff=%d", res.Session.Phase, len(res.Diff)), nil
+		return fmt.Sprintf("phase=%s test=%s diff=%d", res.Session.Phase, res.TestStatus, len(res.Diff)), nil
 	})
 	runner.OnEvent = func(ev multiagent.Event) {
 		evCh <- ev

@@ -73,6 +73,8 @@ func (m *Model) handleRewindKey(key string) bool {
 		m.applyLayout()
 		m.dirty = true
 		m.followBottom = true
+		m.persist()
+		m.historySyncPending = true
 		m.status = i18n.T("rewind.picked")
 		m.closeRewind()
 		return true

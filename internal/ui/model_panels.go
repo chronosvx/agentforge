@@ -283,7 +283,8 @@ func (m *Model) loadSplitSession() {
 
 func (m *Model) renderSplitPanel() string {
 	var b strings.Builder
-	b.WriteString(i18n.T("panel.split_title", m.splitSessionID) + "\n\n")
+	b.WriteString(i18n.T("panel.split_title", m.splitSessionID) + "\n")
+	b.WriteString("view only · press s to switch here\n\n")
 	if m.store != nil && m.splitSessionID != "" {
 		var messages []client.Message
 		if m.splitSessionID == m.sessionID {

@@ -29,6 +29,7 @@ type fakeBackend struct {
 	invokes    []string
 	invokeArgs [][]any
 	subCtx     context.Context
+	synced     [][]client.Message
 }
 
 func (f *fakeBackend) Open(ctx context.Context, workspace, sessionID string, options map[string]any) (*client.Snapshot, error) {
@@ -44,6 +45,11 @@ func (f *fakeBackend) Invoke(ctx context.Context, channelID, method string, args
 	f.invokes = append(f.invokes, channelID)
 	f.invokeArgs = append(f.invokeArgs, append([]any(nil), args...))
 	return nil, nil
+}
+
+func (f *fakeBackend) SyncHistory(ctx context.Context, channelID string, messages []client.Message) error {
+	f.synced = append(f.synced, append([]client.Message(nil), messages...))
+	return nil
 }
 
 func (f *fakeBackend) Close(ctx context.Context, channelID string) error {

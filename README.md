@@ -67,19 +67,18 @@ cmd/agentforge/         入口（TUI / CLI）
 cmd/agentforge-smoke    DSH Web API 冒烟/验收工具
 internal/dshapi/        真实 DSH Web API 客户端与 Backend 适配
 internal/client/        DSH Channel WebSocket 客户端（实验性/预留）
-internal/session/       会话状态与本地持久化（含 AsyncStore 异步存储）
+internal/session/       会话状态与本地持久化（含 AsyncStore 异步存储、导入导出）
 internal/agent/         Agent 执行闭环后端：计划、审批、执行、测试、Diff 评审、回滚状态机
+internal/agentflow/     Agent 主流程 Runner：计划 -> 审批 -> 执行 -> 测试 -> Diff -> 提交
 internal/contextx/      长会话上下文窗口管理、压缩摘要、Checkpoint/Rewind
 internal/mcp/           MCP Client：JSON-RPC 2.0、HTTP/SSE 与 stdio 传输、工具列表/调用
-internal/persist/       通用异步持久化队列（Writer）
 internal/skill/         Skill 本地安装/仓库克隆/远端 manifest 同步
-internal/provider/      直连模型厂商：OpenAI 兼容客户端、代理、路由/故障转移、定价与上下文窗口
-internal/offline/       本地 JSON 离线消息队列
+internal/provider/      直连模型厂商：OpenAI 兼容客户端、代理、路由/故障转移、定价、上下文窗口、离线队列
 internal/security/      AES-GCM 加密、脱敏、审计日志、API Key 安全存储（系统 Keychain / 本地加密文件）
-internal/plugin/        插件市场/签名/权限/沙箱
+internal/plugin/        插件市场/签名/权限/受限执行（无 OS 级隔离）
 internal/cost/          成本估算与预算管理
 internal/executor/      本地 / Docker / SSH 命令执行
-internal/orchestrator/  多 Agent 协作与任务编排
+internal/multiagent/    多 Agent 协作与任务编排
 internal/memory/        项目记忆 / 语义检索
 internal/ui/            Bubble Tea UI
 internal/i18n/          轻量国际化语言包（zh / en）
@@ -90,23 +89,25 @@ internal/update/        自动更新检查（版本比较 + GitHub Release 查�
 
 ## 当前能力
 
+状态标记：`[稳定]` 已接入主流程并有测试覆盖；`[部分接入]` 可用但存在明确边界；`[示例]` 仅演示路径；`[实验]` 非稳定协议；`[未完成]` 尚未接通。
+
 当前核心能力围绕终端 TUI / CLI 客户端：
 
-- **DSH 客户端与真实 API**：`internal/dshapi` 接入 DSH Web API（HTTP RPC + WebSocket 事件流），支持 seq 断点续传、自动重连与真实会话恢复；`internal/client` 保留实验性/预留的 Channel WebSocket 客户端（对应 `tui.dsh/v1alpha1`，非官方稳定协议）。
-- **TUI 工作台**：Bubble Tea 聊天界面、流式渲染与虚拟滚动/增量渲染、命令面板、多行输入、`@` 文件引用与自动补全、多会话 Tab/分屏、Context/Cost/Diff/Todo/Tools/Skills/Plugin 面板、会话搜索与历史全文搜索、输入历史搜索（`Ctrl+R`）、会话总览（`/agentview`）、时间回溯（空输入双击 `Esc`）、常驻 HUD（上下文/成本/TPS）、`/clear` 清空当前会话、`/status` 状态摘要、`/compact` 上下文压缩，以及 `/exec` 执行面板。
-- **键位自定义**：可通过 `<data-dir>/keybindings.json` 自定义 help/palette/history 等全局键位。
-- **Provider 直连**：`internal/provider` 提供 OpenAI 兼容客户端、多 API Key 轮询、路由/故障转移、错误映射、成本单价表与模型上下文窗口注册表；支持 HTTP/HTTPS/SOCKS5 代理与本地离线消息队列。
-- **Agent 与上下文工程**：`internal/agent` 提供 Agent 执行闭环/审批状态机；`internal/contextx` 提供长会话上下文窗口管理、压缩摘要与 Checkpoint/Rewind；`internal/mcp` 提供 MCP Client（JSON-RPC 2.0、HTTP/SSE/stdio、工具列表/调用）；`internal/persist` 与 `session.AsyncStore` 提供异步持久化，`Save` 不阻塞 UI；以上能力已接入 UI（Agent 审批面板、`/checkpoint`、`/rewind`、`/mcp`、`/mcp-call`）。
-- **多 Agent 与执行**：`internal/orchestrator` 多 Agent 协作与任务编排；`internal/memory` 项目记忆/语义检索；`internal/executor` 统一本地/Docker/SSH 命令执行；`internal/plugin` 插件治理（签名、权限、沙箱、审核）。
-- **插件市场 CLI**：`agentforge market search/install/list`，可直接从命令行搜索、安装和列出插件市场条目。
-- **doctor 终端诊断与无颜色模式**：`agentforge doctor` 提供终端兼容性诊断；`--no-color` 可关闭颜色/ANSI 输出，便于不支持颜色的终端或管道日志。
-- **i18n 国际化**：中/英文界面，`--lang zh|en` 切换，默认中文。
-- **本地安全**：AES-GCM 加解密、敏感信息脱敏、审计日志，以及 API Key 系统 Keychain / 本地加密文件存储。
-- **遥测与更新**：可选本地遥测（JSON Lines、脱敏、不联网，默认关闭）；自动更新检查（版本比较 + GitHub Release 查询，仅提示不自动下载）。
-- **项目上下文**：`agentforge project-init` 可在当前项目生成 `AGENT.md` 项目上下文，供 Agent 与 Repo Mode 理解项目背景、构建/测试约定。
-- **会话导入 / 导出**：`export` / `import` 支持本地批量迁移与备份恢复。
-- **非交互与远程执行**：`--headless --prompt` 可不启动 TUI 直接调用 Provider/DSH 后端并打印结果，支持 `--format text|json|stream-json`（含流式 JSON Lines）；`exec` 子命令复用 `internal/executor` 支持本地、Docker 容器和 SSH 远程命令执行。
-- **发布与安装**：多平台 `make release`、`make package` 生成 CLI 安装包、Windows `scripts/install.ps1`、GitHub Actions CI 与 fuzz。
+- **DSH 客户端与真实 API** `[稳定]`：`internal/dshapi` 接入 DSH Web API（HTTP RPC + WebSocket 事件流），支持 seq 断点续传、自动重连与真实会话恢复；`internal/client` 保留实验性/预留的 Channel WebSocket 客户端（对应 `tui.dsh/v1alpha1`，非官方稳定协议）`[实验]`。
+- **TUI 工作台** `[稳定]`：Bubble Tea 聊天界面、流式渲染与虚拟滚动/增量渲染、命令面板、多行输入、`@` 文件引用与自动补全、多会话 Tab/分屏（并排查看，右侧只读）、Context/Cost/Diff/Todo/Tools/Skills/Plugin 面板、会话搜索与历史全文搜索、输入历史搜索（`Ctrl+R`）、会话总览（`/agentview`）、时间回溯（空输入双击 `Esc`）、常驻 HUD（上下文/成本/TPS）、`/clear`、`/status`、`/compact`，以及 `/exec` 执行面板。
+- **键位自定义** `[稳定]`：可通过 `<data-dir>/keybindings.json` 自定义 help/palette/history 等全局键位。
+- **Provider 直连** `[稳定]`：`internal/provider` 提供 OpenAI 兼容客户端、多 API Key 轮询、路由/故障转移、错误映射、成本单价表与模型上下文窗口注册表；支持 HTTP/HTTPS/SOCKS5 代理与本地离线消息队列。Provider 自动 MCP 工具回路尚未接通 `[未完成]`。
+- **Agent 与上下文工程** `[部分接入]`：`internal/agent` 提供 Agent 执行闭环/审批状态机；`internal/agentflow` 提供计划 -> 审批 -> 执行 -> 测试 -> 范围化 Diff -> 提交的 Runner；`internal/contextx` 提供长会话上下文窗口管理、压缩摘要与 Checkpoint/Rewind；`internal/mcp` 提供 MCP Client；`session.AsyncStore` 提供异步持久化。TUI `/agent` 目前仍是审批状态展示示例，真实执行入口为 CLI `agentforge agent` `[示例]`。
+- **多 Agent 与执行** `[部分接入]`：`internal/multiagent` 按依赖并发调度任务；`internal/memory` 项目记忆/语义检索；`internal/executor` 统一本地/Docker/SSH 命令执行；`internal/plugin` 插件治理（签名、权限、审核、受限执行）。多 Agent 工作区隔离、运行中取消与持久化重试尚未完成 `[未完成]`。
+- **插件市场 CLI** `[稳定]`：`agentforge market search/install/list`，可直接从命令行搜索、安装和列出插件市场条目。外部插件以本机进程运行，无操作系统级隔离 `[部分接入]`。
+- **doctor 终端诊断与无颜色模式** `[稳定]`：`agentforge doctor` 提供终端兼容性诊断；`--no-color` 可关闭颜色/ANSI 输出，便于不支持颜色的终端或管道日志。
+- **i18n 国际化** `[稳定]`：中/英文界面，`--lang zh|en` 切换，默认中文。
+- **本地安全** `[稳定]`：AES-GCM 加解密、敏感信息脱敏、审计日志，以及 API Key 系统 Keychain / 本地加密文件存储。
+- **遥测与更新** `[稳定]`：可选本地遥测（JSON Lines、脱敏、不联网，默认关闭）；自动更新检查（版本比较 + GitHub Release 查询，仅提示不自动下载）。
+- **项目上下文** `[部分接入]`：`agentforge project-init` 可生成 `AGENT.md`；规划入口尚未自动加载该文件 `[未完成]`。
+- **会话导入 / 导出** `[稳定]`：`export` / `import` 支持明文与加密会话的批量迁移、备份恢复，并报告跳过/失败数量。
+- **非交互与远程执行** `[稳定]`：`--headless --prompt` 可不启动 TUI 直接调用 Provider/DSH 后端并打印结果；`exec` 子命令支持本地、Docker 和 SSH。
+- **发布与安装** `[部分接入]`：多平台 `make release`、`make package`、Windows 安装脚本、GitHub Actions CI 与 fuzz 已具备；真实 DSH、外部模型和跨平台发布产物仍需按平台实测。
 
 UI 体验细节：
 
@@ -152,7 +153,7 @@ UI 体验细节：
 | `/search <关键词>` | 过滤会话列表 |
 | `/find <关键词>` | 全文搜索历史消息 |
 | `/right` | 打开/关闭右侧常驻 Overview 面板 |
-| `/split` | 打开/关闭双会话并排视图 |
+| `/split` | 打开/关闭双会话并排查看（右侧只读；按 `s` 切换到右侧会话后再发送） |
 | `/model [模型]` | 查看当前模型；Provider 直连时可切换模型 |
 | `/status` | 查看当前状态摘要 |
 | `/new` | 新建一个普通会话 |
@@ -182,7 +183,7 @@ UI 体验细节：
 | `/forget <键>` | 删除一条项目记忆 |
 | `/memory [查询]` | 列出或搜索项目记忆 |
 | `/exec [命令]` | 打开执行面板，或直接执行命令 |
-| `/image <图片路径> [文字...]` | 发送本地图片给支持多模态的模型（如 DeepSeek Vision），Provider 会读取文件并编码为 data URL |
+| `/image <图片路径> [文字...]` | 发送本地图片给支持多模态的模型；图片会绑定到该条 user 消息并在同会话后续追问中继续发送。DSH Web API 当前只转发文字 |
 | `/multi <提示词1,提示词2,...>` 或 `/multi [{"id":"a","prompt":"...","deps":["b"]}]` | 准备多 Agent 任务（JSON 形式支持依赖）并打开面板；用 `/multi-run` 执行 |
 | `/multi-run` | 执行 `/multi` 已准备的多 Agent 任务 |
 | `/agents` | 打开/关闭多 Agent 面板 |
@@ -214,7 +215,7 @@ agentforge market list
 agentforge market install <插件名>
 ```
 
-`agentforge market search/install/list` 可直接在命令行操作插件市场：搜索可用插件、查看市场列表，以及安装目标插件到本地插件目录。详细说明见 [docs/usage.md](docs/usage.md)。
+`agentforge market search/install/list` 可直接在命令行操作插件市场：搜索可用插件、查看市场列表，以及安装目标插件到本地插件目录。安装时会做签名/校验和与权限检查，但外部插件仍以本机进程、当前用户权限运行，**没有操作系统级文件系统和网络隔离**；只应安装可信来源的插件。详细说明见 [docs/usage.md](docs/usage.md)。
 
 ## 会话导入 / 导出
 
@@ -280,7 +281,7 @@ agentforge multiagent --tasks "run echo a,run echo b,run echo c" --yes
 agentforge agent --prompt "run echo hi" --yes --json
 agentforge multiagent --tasks "run echo a,run echo b" --yes --json
 
-# 安全预览：只生成计划，不实际执行
+# 安全预览：只生成计划，不执行、不审批、不跑测试；不能与 --commit/--push/--pr 组合
 agentforge agent --prompt "add --version to main.go" --planner llm --dry-run
 agentforge multiagent --tasks "run echo a,run echo b" --dry-run
 
@@ -337,7 +338,7 @@ TUI 多 Agent 依赖图/子任务树：
 | `Ctrl+→` | 切换到下一个会话 Tab |
 | 右侧 Overview 面板内 `1`~`4` | 打开 Context / Cost / Diff / Todos 详情面板 |
 | 双会话并排内 `[` / `]` | 切换右侧会话 |
-| 双会话并排内 `s` | 切换到右侧会话并发送消息 |
+| 双会话并排内 `s` | 切换到右侧会话（之后输入只发往该会话） |
 | Diff 面板内 `j` / `k` | 上/下移动 Diff 光标 |
 | Diff 面板内 `a` / `r` | 接受 / 拒绝当前 Diff |
 | Diff 面板内 `A` / `R` | 全部接受 / 全部拒绝所有 Diff |
@@ -462,7 +463,7 @@ p := provider.NewOpenAI(provider.OpenAIConfig{
 
 ### 离线队列
 
-`internal/offline.Queue` 基于本地 JSON 文件暂存待发送消息：
+`provider.Queue` 基于本地 JSON 文件暂存待发送消息（`internal/provider` 内实现）：
 
 ```go
 q := offline.NewQueue("/path/to/data-dir/offline.json")

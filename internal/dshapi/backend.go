@@ -37,6 +37,9 @@ func NewBackend(api *Client) *Backend {
 	return &Backend{api: api}
 }
 
+// SupportsImages 报告当前 DSH Web API 路径仅转发文本，不转发图片。
+func (b *Backend) SupportsImages() bool { return false }
+
 // Open 打开/创建一个会话，并开始监听 events.mux。
 func (b *Backend) Open(ctx context.Context, workspace, sessionID string, options map[string]any) (*client.Snapshot, error) {
 	b.mu.Lock()

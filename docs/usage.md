@@ -109,13 +109,18 @@ export NO_PROXY=localhost,127.0.0.1
 
 ### 离线队列
 
-`internal/offline.Queue` 基于本地 JSON 文件暂存待发送消息，适合在网络不可用时保存用户输入，恢复后再补发：
+`provider.Queue`（`internal/provider`）基于本地 JSON 文件暂存待发送消息，适合在网络不可用时保存用户输入，恢复后再补发：
 
 ```go
-q := offline.NewQueue("/path/to/data-dir/offline.json")
+q := provider.NewQueue("/path/to/data-dir/offline.json")
 
 // 入队
 if err := q.Enqueue("session-id", "用户消息"); err != nil {
+    // 处理错误
+}
+
+// 带图片的消息会持久化附件，便于重启后重试
+if err := q.EnqueueReplayWithImages("session-id", "用户消息", images); err != nil {
     // 处理错误
 }
 
@@ -131,7 +136,7 @@ if err := q.Remove(items[0].ID); err != nil {
 }
 ```
 
-队列文件格式为 JSON，`Item` 包含 `ID`、`SessionID`、`Message`、`CreatedAt`。
+队列文件格式为 JSON，`Item` 包含 `ID`、`SessionID`、`Message`、`Images`、`CreatedAt`。注意：离线队列独立于会话加密配置，始终以明文 JSON 保存；图片附件写入队列后会以 data URL 形式落盘，请避免在共享账户或不可信磁盘上使用敏感图片。
 
 ### 厂商 API Key 安全存储
 
@@ -255,7 +260,8 @@ agentforge market install <插件名>
 - `search`：按关键词在插件市场索引中搜索可用插件。
 - `list`：列出当前配置或默认市场索引中的全部插件。
 - `install`：按插件名从市场索引安装插件到本地插件目录（通常为 `<data-dir>/plugins/`）。
-- 签名校验、权限与沙箱策略仍沿用 `internal/plugin` 的既有插件治理能力。
+- 安装阶段会做签名/校验和校验、清单权限检查与执行超时限制，但这些都属于治理措施，不是运行隔离。
+- **信任边界**：外部插件以本机进程运行，拥有当前用户权限，可以读写当前用户可访问的文件并访问网络；当前版本不提供操作系统级文件系统/网络沙箱。声明 `AllowNetwork` 的插件会被拒绝执行；其余插件只应来自可信来源。
 
 ## 非交互 Headless 模式
 
@@ -322,10 +328,19 @@ agentforge agent --prompt "edit README.md hello" --yes --commit --push --pr --pr
 | `--pr` | 提交后创建 PR（需要 `gh` CLI） |
 | `--pr-title <title>` | PR 标题 |
 | `--pr-body <body>` | PR 描述 |
+| `--dry-run` | 只生成计划并预览；不审批、不执行、不跑测试，也不能与 `--commit` / `--push` / `--pr` 组合 |
+| `--json` | 输出结构化结果，包含 `test_status`、`task_paths`、`pre_existing_paths`、`conflicted_paths` |
 | `--provider <name>` | LLM 厂商（`--planner llm` 必填） |
 | `--provider-key <key>` | LLM API Key（`--planner llm` 必填） |
 | `--model <model>` | LLM 模型（可选；DeepSeek V4 可用 `deepseek-v4-flash` / `deepseek-v4-pro` / `deepseek-v4-vision`） |
 | `--base-url <url>` | OpenAI 兼容 Base URL（可选） |
+
+提交边界：
+
+- Diff 只展示本任务改动的路径，并覆盖新建、修改、删除、已暂存和未跟踪文件；运行前已存在的脏改动会单独列出，不进入本任务 Diff。
+- `--commit` 只提交本任务改动。若任务修改了运行前已经变脏的文件，命令会拒绝自动提交，避免把预先存在的改动一起带走。
+- `--test ''` 表示跳过测试，输出 `Test: skipped`，不会再显示为测试通过；执行失败的动作标记为 `failed`，未执行的动作保持 `pending`。
+- `--push` / `--pr` 必须与 `--commit` 一起使用。
 
 > ⚠️ **安全警告**：`--yes` 会自动批准所有动作。与 `--commit`、`--push`、`--pr` 一起使用时，会在没有逐条确认的情况下创建提交、推送到远端并创建 PR。请只在可信仓库或 CI 中使用，并确保工作区已备份或可回滚。
 
@@ -336,6 +351,8 @@ agentforge multiagent --tasks "run echo a,run echo b,run echo c" --yes
 ```
 
 `--tasks` 使用逗号分隔多个任务提示词；`--workdir`、`--yes`、`--test`、`--timeout` 等参数与 `agent` 子命令类似。
+
+`multiagent --dry-run` 只生成并展示计划，不需要 `--yes`，也不会请求逐条审批或执行命令。
 
 ### TUI：`/multi` 与 `/agents`
 
@@ -420,6 +437,8 @@ agentforge exec --ssh --host example.com --user alice --port 2222 --cmd "uname -
 - 不带文字时，UI 会自动使用“查看图片：<路径>”作为这条 user 消息的文本。
 - 支持 `png` / `jpg` / `jpeg` / `webp` / `gif`，单张图片最大 20MB。
 - Provider 会把图片读取为 data URL，并以 OpenAI Vision `content parts` 格式随消息发送；如果当前模型不支持多模态，由远端接口自行决定是否报错。
+- 图片会绑定到对应的 user 消息，并在同一 Provider 会话的后续追问中继续发送；进程重启后图片不写入会话历史，离线重试队列会携带附件以便恢复。
+- DSH Web API 路径当前只转发文字，`/image` 会在状态栏提示“current backend does not support image input”，不会静默丢弃图片。
 
 ## 本地会话导出 / 导入
 
@@ -433,7 +452,7 @@ agentforge export --out-dir /path/to/export
 agentforge export --data-dir ~/.agentforge --out-dir /path/to/export
 ```
 
-把 `<data-dir>/sessions/` 下的所有会话导出为 JSON 文件到 `--out-dir`，文件名是 `<会话ID>.json`。
+把 `<data-dir>/sessions/` 下的所有会话导出到 `--out-dir`：明文会话写为 `<会话ID>.json`；加密会话（`<会话ID>.json.enc`）按密文原样复制，不需要主密钥。同一 ID 同时存在两种格式时优先导出加密文件，并报告跳过的重复明文。命令会分别打印明文/加密导出数量以及跳过、失败数量；存在失败时以非零状态退出。
 
 ### 导入全部会话
 
@@ -443,7 +462,7 @@ agentforge import --in-dir /path/to/export
 agentforge import --data-dir ~/.agentforge --in-dir /path/to/export
 ```
 
-从 `--in-dir` 读取 JSON 文件并写入 `<data-dir>/sessions/`。如果某个会话 ID 已存在，会跳过该文件、不覆盖本地数据；每个文件的处理结果都会打印。
+从 `--in-dir` 读取明文与加密会话并写入 `<data-dir>/sessions/`。加密文件按密文复制，使用同一主密钥的 `EncryptedStore` 可直接读取。如果某个会话 ID 已存在（无论明文还是加密格式），会跳过该文件、不覆盖本地数据；每个文件的导入、跳过和失败数量都会打印。
 
 ## 本地安全能力
 
@@ -579,7 +598,7 @@ DSH_TELEMETRY=1 agentforge
 | `/search <关键词>` | 过滤会话列表 |
 | `/find <关键词>` | 全文搜索历史消息 |
 | `/right` | 右侧 Overview 面板 |
-| `/split` | 双会话并排视图 |
+| `/split` | 双会话并排查看（右侧只读）；按 `s` 切换到右侧会话后再发送 |
 | `/model [模型]` | 查看当前模型；Provider 直连时可切换模型 |
 | `/status` | 查看当前状态摘要 |
 | `/new` | 新建普通会话 |
@@ -621,13 +640,15 @@ DSH_TELEMETRY=1 agentforge
 
 - 新会话会根据第一条用户消息自动生成标题；使用 `/rename` 手动改名后，该标题不会被后续自动命名或持久化覆盖。
 - `/sessions` 面板会按工作区分组展示会话，便于在多工作区之间快速定位。
-- `/clear` 清空当前会话的聊天内容，便于在当前会话中重新开始。
+- `/clear` 清空当前会话的聊天内容，便于在当前会话中重新开始；在 Provider 直连模式下会同时把空历史同步给后端并落盘。
 - `/status` 查看当前状态摘要。
+- `/split` 只做并排查看，普通输入默认只发往当前会话；按 `s` 切换到右侧会话后才会向它发送。
 
 ### 上下文管理
 
 - 当会话上下文接近窗口限制时，可使用 `/compact` 将除最后一条外的旧消息压缩为一条 system 摘要，降低 token 占用并继续对话。
 - 压缩后旧消息不再逐条保留；若需要保留更完整的历史，可结合 `/checkpoint`、`/timeline`、`/rewind` 进行时间线保存与回滚。
+- `/clear`、`/compact` 和 `/rewind` 在 Provider 直连模式下会同步替换下一次模型请求使用的历史；DSH 等不支持替换上下文的后端会在状态栏明确提示“local view only”。
 - `/context` 可查看当前 Context 用量，便于判断是否值得执行 `/compact`。
 
 ### MCP 工具审批面板

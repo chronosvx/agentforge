@@ -80,6 +80,12 @@ func runAgent(args []string) error {
 	if strings.TrimSpace(*prompt) == "" {
 		return errors.New("agent: --prompt is required")
 	}
+	if *dryRun && (*doCommit || *doPush || *doPR) {
+		return errors.New("agent: --dry-run cannot be combined with --commit, --push, or --pr")
+	}
+	if (*doPush || *doPR) && !*doCommit {
+		return errors.New("agent: --push and --pr require --commit")
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -159,122 +165,175 @@ func runAgent(args []string) error {
 		DryRun:      *dryRun,
 	})
 	if err != nil {
-		if res != nil && !res.TestOK && (*doCommit || *doPush || *doPR) {
+		if res != nil {
+			if *jsonOut {
+				if jsonErr := writeAgentJSON(res, err.Error()); jsonErr != nil {
+					return jsonErr
+				}
+			} else {
+				printAgentResult(res, err)
+			}
+		}
+		if res != nil && res.TestStatus == agentflow.TestStatusFailed && (*doCommit || *doPush || *doPR) {
 			return fmt.Errorf("agent: tests failed; refusing to commit")
 		}
 		return err
 	}
 
 	if !*jsonOut {
-		fmt.Println("\n===== Agent 主流程结果 =====")
-		fmt.Printf("Phase: %s\n", res.Session.Phase)
-		for _, a := range res.Session.Actions {
-			fmt.Printf("Action: %s [%s] %s\n", a.ID, a.Status, a.Description)
-			if a.Output != "" {
-				fmt.Printf("  Output: %s\n", a.Output)
-			}
-		}
-		if res.TestOutput != "" {
-			fmt.Printf("Test output:\n%s\n", res.TestOutput)
-		}
-		if *testCmd != "" {
-			fmt.Printf("Test OK: %v\n", res.TestOK)
-		}
-		if res.Diff != "" {
-			fmt.Printf("Diff:\n%s\n", res.Diff)
-		} else {
-			fmt.Println("Diff: (none)")
-		}
+		printAgentResult(res, nil)
 	}
 
-	if !res.TestOK && (*doCommit || *doPush || *doPR) {
+	if res.TestStatus == agentflow.TestStatusFailed && (*doCommit || *doPush || *doPR) {
 		return fmt.Errorf("agent: tests failed; refusing to commit")
 	}
 
 	if *doCommit {
-		cfg := gitflow.Config{
-			WorkDir:   *workdir,
-			Branch:    *branch,
-			CommitMsg: "agentflow: " + *prompt,
-			PRTitle:   *prTitle,
-			PRBody:    *prBody,
-			Push:      *doPush,
+		if len(res.ConflictedPaths) > 0 {
+			return fmt.Errorf("agent: refusing to commit: task edited files that were already dirty: %s; clean or commit those changes first", strings.Join(res.ConflictedPaths, ", "))
 		}
-		if err := gitflow.EnsureBranch(ctx, cfg); err != nil {
-			return fmt.Errorf("agent: ensure branch: %w", err)
-		}
-		if cfg.Branch == "" {
-			cfg.Branch = currentGitBranch(*workdir)
-			if cfg.Branch == "" {
-				return errors.New("agent: unable to determine current branch after ensure branch")
-			}
-		}
-		actualBranch := cfg.Branch
-		sha, err := gitflow.Commit(ctx, cfg)
-		if err != nil {
-			if strings.Contains(err.Error(), "nothing to commit") || strings.Contains(err.Error(), "no changes added") {
-				if !*jsonOut {
-					fmt.Println("Commit: (nothing to commit)")
-				}
-			} else {
-				return fmt.Errorf("agent: commit: %w", err)
+		if len(res.TaskPaths) == 0 {
+			if !*jsonOut {
+				fmt.Println("Commit: (no task changes)")
 			}
 		} else {
-			if !*jsonOut {
-				fmt.Printf("Commit: %s on %s\n", sha, actualBranch)
+			commitDir := *workdir
+			if res.RepoRoot != "" {
+				commitDir = res.RepoRoot
 			}
-		}
-		if *doPush {
-			if err := gitflow.Push(ctx, cfg); err != nil {
-				return fmt.Errorf("agent: push: %w", err)
+			cfg := gitflow.Config{
+				WorkDir:   commitDir,
+				Branch:    *branch,
+				CommitMsg: "agentflow: " + *prompt,
+				PRTitle:   *prTitle,
+				PRBody:    *prBody,
+				Push:      *doPush,
+				Paths:     res.TaskPaths,
 			}
-			if !*jsonOut {
-				fmt.Printf("Pushed: %s\n", actualBranch)
+			if err := gitflow.EnsureBranch(ctx, cfg); err != nil {
+				return fmt.Errorf("agent: ensure branch: %w", err)
 			}
-		}
-		if *doPR {
-			url, err := gitflow.CreatePR(ctx, cfg)
+			if cfg.Branch == "" {
+				cfg.Branch = currentGitBranch(commitDir)
+				if cfg.Branch == "" {
+					return errors.New("agent: unable to determine current branch after ensure branch")
+				}
+			}
+			actualBranch := cfg.Branch
+			sha, err := gitflow.Commit(ctx, cfg)
 			if err != nil {
-				return fmt.Errorf("agent: create PR: %w", err)
+				if strings.Contains(err.Error(), "nothing to commit") || strings.Contains(err.Error(), "no changes added") {
+					if !*jsonOut {
+						fmt.Println("Commit: (nothing to commit)")
+					}
+				} else {
+					return fmt.Errorf("agent: commit: %w", err)
+				}
+			} else {
+				if !*jsonOut {
+					fmt.Printf("Commit: %s on %s (paths: %s)\n", sha, actualBranch, strings.Join(res.TaskPaths, ", "))
+				}
 			}
-			if !*jsonOut {
-				fmt.Printf("PR: %s\n", url)
+			if *doPush {
+				if err := gitflow.Push(ctx, cfg); err != nil {
+					return fmt.Errorf("agent: push: %w", err)
+				}
+				if !*jsonOut {
+					fmt.Printf("Pushed: %s\n", actualBranch)
+				}
+			}
+			if *doPR {
+				url, err := gitflow.CreatePR(ctx, cfg)
+				if err != nil {
+					return fmt.Errorf("agent: create PR: %w", err)
+				}
+				if !*jsonOut {
+					fmt.Printf("PR: %s\n", url)
+				}
 			}
 		}
 	}
 
 	if *jsonOut {
-		type jsonAction struct {
-			ID          string `json:"id"`
-			Type        string `json:"type"`
-			Status      string `json:"status"`
-			Description string `json:"description"`
-			Output      string `json:"output,omitempty"`
-		}
-		actions := make([]jsonAction, 0, len(res.Session.Actions))
-		for _, a := range res.Session.Actions {
-			actions = append(actions, jsonAction{
-				ID:          a.ID,
-				Type:        string(a.Type),
-				Status:      string(a.Status),
-				Description: a.Description,
-				Output:      a.Output,
-			})
-		}
-		out := map[string]any{
-			"phase":       res.Session.Phase,
-			"actions":     actions,
-			"test_output": res.TestOutput,
-			"test_ok":     res.TestOK,
-			"diff":        res.Diff,
-		}
-		data, err := json.MarshalIndent(out, "", "  ")
-		if err != nil {
-			return err
-		}
-		fmt.Println(string(data))
+		return writeAgentJSON(res, "")
 	}
 
+	return nil
+}
+
+// printAgentResult 输出一次 Agent 运行的文本结果；runErr 非空时附在末尾。
+func printAgentResult(res *agentflow.Result, runErr error) {
+	fmt.Println("\n===== Agent 主流程结果 =====")
+	if runErr != nil {
+		fmt.Println("Status: failed")
+	}
+	fmt.Printf("Phase: %s\n", res.Session.Phase)
+	for _, a := range res.Session.Actions {
+		fmt.Printf("Action: %s [%s] %s\n", a.ID, a.Status, a.Description)
+		if a.Output != "" {
+			fmt.Printf("  Output: %s\n", a.Output)
+		}
+	}
+	if res.TestOutput != "" {
+		fmt.Printf("Test output:\n%s\n", res.TestOutput)
+	}
+	fmt.Printf("Test: %s\n", res.TestStatus)
+	if res.Diff != "" {
+		fmt.Printf("Diff (task scope):\n%s\n", res.Diff)
+	} else {
+		fmt.Println("Diff (task scope): (none)")
+	}
+	if len(res.PreExistingPaths) > 0 {
+		fmt.Printf("Pre-existing changes (not committed): %s\n", strings.Join(res.PreExistingPaths, ", "))
+	}
+	if len(res.ConflictedPaths) > 0 {
+		fmt.Printf("WARNING: pre-existing changes overlap with task edits: %s\n", strings.Join(res.ConflictedPaths, ", "))
+	}
+	if runErr != nil {
+		fmt.Printf("Error: %v\n", runErr)
+	}
+}
+
+// writeAgentJSON 输出结构化结果；errText 非空时一并写入 error 字段。
+func writeAgentJSON(res *agentflow.Result, errText string) error {
+	type jsonAction struct {
+		ID          string `json:"id"`
+		Type        string `json:"type"`
+		Status      string `json:"status"`
+		Description string `json:"description"`
+		Output      string `json:"output,omitempty"`
+	}
+	actions := make([]jsonAction, 0, len(res.Session.Actions))
+	for _, a := range res.Session.Actions {
+		actions = append(actions, jsonAction{
+			ID:          a.ID,
+			Type:        string(a.Type),
+			Status:      string(a.Status),
+			Description: a.Description,
+			Output:      a.Output,
+		})
+	}
+	out := map[string]any{
+		"phase":              res.Session.Phase,
+		"actions":            actions,
+		"test_output":        res.TestOutput,
+		"test_ok":            res.TestOK,
+		"test_ran":           res.TestRan,
+		"test_status":        res.TestStatus,
+		"diff":               res.Diff,
+		"task_paths":         res.TaskPaths,
+		"pre_existing_paths": res.PreExistingPaths,
+		"conflicted_paths":   res.ConflictedPaths,
+		"pre_existing_diff":  res.PreExistingDiff,
+	}
+	if errText != "" {
+		out["error"] = errText
+	}
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(data))
 	return nil
 }
 

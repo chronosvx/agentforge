@@ -221,6 +221,7 @@ func marketInstallWithOptions(indexURL, name, dataDir string, allowUnsigned, yes
 			fmt.Printf("  %s\n", inspected.Manifest.Description)
 		}
 		fmt.Printf("Permissions:\n%s\n", formatPermissions(inspected.Manifest.Permissions))
+		fmt.Println("Trust boundary: plugins run as local processes with your user privileges; there is no OS-level filesystem/network sandbox. Only install trusted plugins.")
 		if !confirmMarketInstall() {
 			fmt.Println("Install cancelled.")
 			return nil
