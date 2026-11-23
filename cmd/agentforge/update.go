@@ -15,7 +15,7 @@ import (
 
 const (
 	publicInstallOwner = "chronosvx"
-	publicInstallRepo  = "agentforge-install"
+	publicInstallRepo  = "agentforge"
 )
 
 var (

@@ -67,9 +67,9 @@ func TestRunUpdateSuccessFromHTTPServer(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/chronosvx/agentforge-install/releases/download/v1.2.3/" + asset:
+		case "/chronosvx/agentforge/releases/download/v1.2.3/" + asset:
 			_, _ = w.Write(newContent)
-		case "/chronosvx/agentforge-install/releases/download/v1.2.3/checksums.txt":
+		case "/chronosvx/agentforge/releases/download/v1.2.3/checksums.txt":
 			fmt.Fprintf(w, "%x  %s\n", sum, asset)
 		default:
 			http.NotFound(w, r)
@@ -132,9 +132,9 @@ func TestRunUpdateUsesLatestWhenNoVersion(t *testing.T) {
 	sum := sha256.Sum256(content)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/chronosvx/agentforge-install/releases/download/v2.0.0/" + asset:
+		case "/chronosvx/agentforge/releases/download/v2.0.0/" + asset:
 			_, _ = w.Write(content)
-		case "/chronosvx/agentforge-install/releases/download/v2.0.0/checksums.txt":
+		case "/chronosvx/agentforge/releases/download/v2.0.0/checksums.txt":
 			fmt.Fprintf(w, "%x  %s\n", sum, asset)
 		default:
 			http.NotFound(w, r)
@@ -182,9 +182,9 @@ func TestRunUpdateChecksumFailurePreservesExecutable(t *testing.T) {
 	newContent := []byte("tampered or wrong binary")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/chronosvx/agentforge-install/releases/download/v9.9.9/" + asset:
+		case "/chronosvx/agentforge/releases/download/v9.9.9/" + asset:
 			_, _ = w.Write(newContent)
-		case "/chronosvx/agentforge-install/releases/download/v9.9.9/checksums.txt":
+		case "/chronosvx/agentforge/releases/download/v9.9.9/checksums.txt":
 			fmt.Fprintf(w, "%s  %s\n", strings.Repeat("0", 64), asset)
 		default:
 			http.NotFound(w, r)

@@ -27,8 +27,8 @@ const GitHubAPIBase = "https://api.github.com"
 // PublicInstallOwner 是公开安装仓库所属 GitHub 用户/组织。
 const PublicInstallOwner = "chronosvx"
 
-// PublicInstallRepo 是公开安装仓库名，其中发布 agentforge 预编译二进制与 checksums.txt。
-const PublicInstallRepo = "agentforge-install"
+// PublicInstallRepo 是发布 agentforge 预编译二进制与 checksums.txt 的 GitHub 仓库。
+const PublicInstallRepo = "agentforge"
 
 // GitHubDownloadBase 是 GitHub Release 资产下载默认入口。
 const GitHubDownloadBase = "https://github.com"
@@ -238,7 +238,7 @@ func LatestFromGitHubWithClient(ctx context.Context, owner, repo, apiBase string
 	return release.TagName, nil
 }
 
-// LatestFromPublic 查询公开安装仓库 chronosvx/agentforge-install 的最新 Release tag。
+// LatestFromPublic 查询公开仓库 chronosvx/agentforge 的最新 Release tag。
 func LatestFromPublic(ctx context.Context) (string, error) {
 	return LatestFromGitHubWithClient(ctx, PublicInstallOwner, PublicInstallRepo, GitHubAPIBase, &http.Client{Timeout: 10 * time.Second})
 }

@@ -129,7 +129,7 @@ func TestDownloadReleaseAssetWithMock(t *testing.T) {
 		body  = "new agentforge binary"
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		wantPath := "/chronosvx/agentforge-install/releases/download/v0.6.1/" + asset
+		wantPath := "/chronosvx/agentforge/releases/download/v0.6.1/" + asset
 		if r.URL.Path != wantPath {
 			t.Errorf("unexpected path: %s, want %s", r.URL.Path, wantPath)
 		}
@@ -141,7 +141,7 @@ func TestDownloadReleaseAssetWithMock(t *testing.T) {
 	defer srv.Close()
 
 	dest := filepath.Join(t.TempDir(), "download.bin")
-	err := update.DownloadReleaseAssetWithClient(context.Background(), "chronosvx", "agentforge-install", "v0.6.1", asset, dest, srv.URL, srv.Client())
+	err := update.DownloadReleaseAssetWithClient(context.Background(), "chronosvx", "agentforge", "v0.6.1", asset, dest, srv.URL, srv.Client())
 	if err != nil {
 		t.Fatalf("DownloadReleaseAssetWithClient: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestDownloadReleaseAssetHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	err := update.DownloadReleaseAssetWithClient(context.Background(), "chronosvx", "agentforge-install", "v9.9.9", "nope", filepath.Join(t.TempDir(), "nope"), srv.URL, srv.Client())
+	err := update.DownloadReleaseAssetWithClient(context.Background(), "chronosvx", "agentforge", "v9.9.9", "nope", filepath.Join(t.TempDir(), "nope"), srv.URL, srv.Client())
 	if err == nil {
 		t.Fatal("expected HTTP error")
 	}
