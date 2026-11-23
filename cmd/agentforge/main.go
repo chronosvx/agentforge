@@ -38,7 +38,10 @@ func main() {
 var version = "0.9.0"
 
 func run() error {
-	args := os.Args[1:]
+	user, roles, args, err := extractGlobalIdentity(os.Args[1:])
+	if err != nil {
+		return err
+	}
 
 	if len(args) > 0 && (args[0] == "help" || args[0] == "-h" || args[0] == "--help") {
 		printRootUsage()
@@ -51,8 +54,16 @@ func run() error {
 			return runExport(args[1:])
 		case "import":
 			return runImport(args[1:])
+		case "sync":
+			return runSync(args[1:])
+		case "sync-remote":
+			return runSyncRemote(args[1:])
+		case "share":
+			return runShare(args[1:])
+		case "open":
+			return runOpen(args[1:])
 		case "exec":
-			return runExec(args[1:])
+			return runExecWithIdentity(args[1:], user, roles)
 		case "agent":
 			return runAgent(args[1:])
 		case "multiagent":
@@ -67,6 +78,8 @@ func run() error {
 			return runAudit(args[1:])
 		case "mcp":
 			return runMCP(args[1:])
+		case "serve":
+			return runServe(args[1:])
 		case "init":
 			return runInit(args[1:])
 		case "project-init":
@@ -90,6 +103,12 @@ func run() error {
 	cfg, err := config.Parse(rest)
 	if err != nil {
 		return err
+	}
+	if cfg.User == "" {
+		cfg.User = user
+	}
+	if cfg.Roles == "" {
+		cfg.Roles = roles
 	}
 	if cfg.Version {
 		fmt.Println("agentforge", version)
@@ -224,11 +243,16 @@ Commands:
   exec         Execute commands locally, in Docker, or over SSH
   export       Export sessions to a directory
   import       Import sessions from a directory
+  sync         Sync sessions between two directories
+  sync-remote  Sync sessions with a remote HTTP/object storage backend
+  share        Share a session as an encrypted link
+  open         Open a shared session link
   doctor       Check the local environment for requirements
   backup       Backup the local data directory to a zip file
   restore      Restore the local data directory from a zip file
   audit        Show recent local audit log entries
   mcp          Connect to an MCP server and list/call tools
+  serve        Start the local daemon API for the desktop GUI
   init         Create a local configuration file
   project-init Generate an AGENT.md project context file
   setup        Run the first-run setup wizard
@@ -260,9 +284,8 @@ See docs/QUICKSTART.md for more.
 
 // extractGlobalIdentity 在子命令之前提取可选的 --user 与 --roles 全局参数。
 //
-// 该函数已不再被主流程调用；保留仅为兼容旧测试/调用方。遇到第一个非 flag
-// 参数（通常是子命令名）即停止提取，避免误删 `exec --user <ssh-user>` 中
-// 属于 SSH 的 --user。
+// 一旦遇到第一个非 flag 参数（通常是子命令名），就停止提取，避免误删
+// `exec --user <ssh-user>` 中属于 SSH 的 --user。
 func extractGlobalIdentity(args []string) (user, roles string, rest []string, err error) {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
